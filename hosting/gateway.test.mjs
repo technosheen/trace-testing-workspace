@@ -231,3 +231,82 @@ test("Azure sign-in requires a trusted ingress and the authorized Microsoft iden
     "/.auth/logout",
   );
 });
+test("CIR2 access requires its verified organization and an exact email domain", async () => {
+  const cir2Env = {
+    ...env,
+    TRACE_ENTRA_AUTH: "1",
+    TRACE_ENTRA_ALLOWED_OBJECT_ID: "owner",
+    TRACE_ENTRA_CIR2_TENANT_ID: "cir2-tenant",
+    TRACE_ENTRA_EMAIL_DOMAIN: "cir2.com",
+  };
+  let calls = 0;
+  const gateway = createGateway(
+    cir2Env,
+    async () => {
+      calls++;
+      return Response.json({ ok: true });
+    },
+    { trustAzureAuthentication: true },
+  );
+  const headersFor = (email, tenant = "cir2-tenant", extra = []) => ({
+    "x-ms-client-principal-idp": "cir2",
+    "x-ms-client-principal": Buffer.from(
+      JSON.stringify({
+        auth_typ: "cir2",
+        claims: [
+          { typ: "tid", val: tenant },
+          { typ: "email", val: email },
+          ...extra,
+        ],
+      }),
+    ).toString("base64"),
+  });
+  for (const address of ["user@cir2.com", "Other.User@CIR2.COM"])
+    assert.equal(
+      (await gateway(req("/api/workspace", { headers: headersFor(address) })))
+        .status,
+      200,
+    );
+  for (const headers of [
+    headersFor("user@cir2.com", "attacker-tenant"),
+    headersFor("user@cir2.com.evil.test"),
+    headersFor("user@evilcir2.com"),
+    headersFor("user@sub.cir2.com"),
+    headersFor("user@@cir2.com"),
+    headersFor("user@cir2.com "),
+    headersFor("user@cir2.com", "cir2-tenant", [{ typ: "tid", val: "other" }]),
+    {
+      "x-ms-client-principal-idp": "cir2",
+      "x-ms-client-principal": "not-json",
+    },
+    {
+      "x-ms-client-principal-idp": "cir2",
+      "x-ms-client-principal-name": "user@cir2.com",
+    },
+  ]) {
+    for (const path of ["/api/workspace", "/artifacts/result.png", "/demo"])
+      assert.equal((await gateway(req(path, { headers }))).status, 401);
+  }
+  assert.equal(calls, 2);
+  assert.equal(
+    (
+      await createGateway(cir2Env)(
+        req("/api/workspace", { headers: headersFor("user@cir2.com") }),
+      )
+    ).status,
+    401,
+  );
+  assert.equal(
+    (
+      await gateway(
+        req("/api/workspace", {
+          headers: {
+            "x-ms-client-principal-idp": "aad",
+            "x-ms-client-principal-id": "owner",
+          },
+        }),
+      )
+    ).status,
+    200,
+  );
+});

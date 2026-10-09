@@ -12,6 +12,8 @@ param aiDeployment string = ''
 param entraClientId string = ''
 param entraTenantId string = ''
 param entraAllowedObjectId string = ''
+param entraCir2TenantId string = ''
+param entraEmailDomain string = ''
 var isPlaceholder = containerImage == 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
 var port = isPlaceholder ? 80 : 8080
 var secretNames = empty(entraClientId) ? ['runner-key', 'password-hash', 'session-secret'] : ['runner-key', 'password-hash', 'session-secret', 'microsoft-provider-authentication-secret']
@@ -59,6 +61,8 @@ resource app 'Microsoft.App/containerApps@2026-07-01' = {
           { name: 'TRACE_SESSION_SECRET', secretRef: 'session-secret' }
           { name: 'TRACE_ENTRA_AUTH', value: empty(entraClientId) ? '0' : '1' }
           { name: 'TRACE_ENTRA_ALLOWED_OBJECT_ID', value: entraAllowedObjectId }
+          { name: 'TRACE_ENTRA_CIR2_TENANT_ID', value: entraCir2TenantId }
+          { name: 'TRACE_ENTRA_EMAIL_DOMAIN', value: entraEmailDomain }
           { name: 'AZURE_CLIENT_ID', value: identityClientId }
           { name: 'AZURE_OPENAI_ENDPOINT', value: aiEndpoint }
           { name: 'AZURE_OPENAI_DEPLOYMENT', value: aiDeployment }
@@ -85,10 +89,23 @@ resource authentication 'Microsoft.App/containerApps/authConfigs@2026-07-01' = i
     httpSettings: { requireHttps: true }
     globalValidation: {
       excludedPaths: ['/api/health']
-      redirectToProvider: 'azureactivedirectory'
+      redirectToProvider: empty(entraCir2TenantId) ? 'azureactivedirectory' : 'cir2'
       unauthenticatedClientAction: 'RedirectToLoginPage'
     }
     identityProviders: {
+      customOpenIdConnectProviders: empty(entraCir2TenantId) ? {} : {
+        cir2: {
+          enabled: true
+          login: { nameClaimType: 'preferred_username', scopes: ['openid', 'profile', 'email'] }
+          registration: {
+            clientId: entraClientId
+            clientCredential: { method: 'ClientSecretPost', clientSecretSettingName: 'microsoft-provider-authentication-secret' }
+            openIdConnectConfiguration: {
+              wellKnownOpenIdConfiguration: 'https://login.microsoftonline.com/${entraCir2TenantId}/v2.0/.well-known/openid-configuration'
+            }
+          }
+        }
+      }
       azureActiveDirectory: {
         enabled: true
         registration: {

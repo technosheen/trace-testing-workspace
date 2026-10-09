@@ -21,7 +21,7 @@
       "value": "6253f10b-3c4b-4af5-9c3d-b5158e517498"
     },
     "containerImage": {
-      "value": "trace9636registry.azurecr.io/trace-app@sha256:2be991b6b17a4276165d53d942229014d456f0b234c2b1c32f5d2bbd52715259"
+      "value": "trace9636registry.azurecr.io/trace-app@sha256:199c4496620a8368a4c471d83b0bf94f15c34179aefff1d400136bd0685c1fba"
     },
     "aiEndpoint": {
       "value": "https://seantmahoney92-3750-resource.cognitiveservices.azure.com/"
@@ -37,6 +37,12 @@
     },
     "entraAllowedObjectId": {
       "value": "6253f10b-3c4b-4af5-9c3d-b5158e517498"
+    },
+    "entraCir2TenantId": {
+      "value": "b0945aa8-fa37-46f2-a8da-5d0b70667996"
+    },
+    "entraEmailDomain": {
+      "value": "cir2.com"
     }
   }
 }

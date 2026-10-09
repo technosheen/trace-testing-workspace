@@ -11,6 +11,8 @@ param aiDeployment string = ''
 param entraClientId string = ''
 param entraTenantId string = ''
 param entraAllowedObjectId string = ''
+param entraCir2TenantId string = ''
+param entraEmailDomain string = ''
 var tags = {
   'app-onboard-skill': 'true'
   'app-onboard-session-id': sessionId
@@ -80,6 +82,8 @@ module app './modules/container-app.bicep' = {
     entraClientId: entraClientId
     entraTenantId: entraTenantId
     entraAllowedObjectId: entraAllowedObjectId
+    entraCir2TenantId: entraCir2TenantId
+    entraEmailDomain: entraEmailDomain
   }
   dependsOn: [roles]
 }

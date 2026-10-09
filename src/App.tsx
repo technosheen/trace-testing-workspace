@@ -390,6 +390,7 @@ export default function App() {
     authenticated: boolean;
     hosted: boolean;
     provider?: "entra" | "password";
+    signInUrl?: string;
   } | null>(null);
   const [authError, setAuthError] = useState("");
   async function checkAuth() {
@@ -425,7 +426,7 @@ export default function App() {
     return (
       <div className="loading-state">
         <p>Sign in with your authorized Microsoft account to open Trace.</p>
-        <a className="btn" href="/.auth/login/aad">
+        <a className="btn" href={auth.signInUrl || "/.auth/login/aad"}>
           Sign in with Microsoft
         </a>
       </div>

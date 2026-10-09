@@ -1,6 +1,58 @@
 import { createHmac, timingSafeEqual, randomUUID } from "node:crypto";
 const cookieName = "__Host-trace";
 const lifetime = 8 * 60 * 60;
+function azureAuthorized(request, env, options) {
+  if (!options.trustAzureAuthentication) return false;
+  const provider = request.headers.get("x-ms-client-principal-idp");
+  if (provider === "aad")
+    return Boolean(
+      env.TRACE_ENTRA_ALLOWED_OBJECT_ID &&
+      request.headers.get("x-ms-client-principal-id") ===
+        env.TRACE_ENTRA_ALLOWED_OBJECT_ID,
+    );
+  if (
+    provider !== "cir2" ||
+    !env.TRACE_ENTRA_CIR2_TENANT_ID ||
+    !env.TRACE_ENTRA_EMAIL_DOMAIN
+  )
+    return false;
+  const encoded = request.headers.get("x-ms-client-principal");
+  if (!encoded || encoded.length > 32768) return false;
+  try {
+    const principal = JSON.parse(
+      Buffer.from(encoded, "base64").toString("utf8"),
+    );
+    if (principal.auth_typ !== "cir2" || !Array.isArray(principal.claims))
+      return false;
+    const claim = (...types) =>
+      principal.claims.filter((c) => types.includes(c.typ)).map((c) => c.val);
+    const tenants = claim(
+      "tid",
+      "http://schemas.microsoft.com/identity/claims/tenantid",
+    );
+    // An email suffix alone is not an identity boundary: require CIR2's verified tenant first.
+    if (
+      !tenants.length ||
+      tenants.some((t) => t !== env.TRACE_ENTRA_CIR2_TENANT_ID)
+    )
+      return false;
+    const addresses = claim(
+      "email",
+      "preferred_username",
+      "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress",
+      "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/upn",
+    );
+    return addresses.some(
+      (value) =>
+        typeof value === "string" &&
+        /^[^@\s]+@[^@\s]+$/.test(value) &&
+        value.split("@")[1].toLowerCase() ===
+          env.TRACE_ENTRA_EMAIL_DOMAIN.toLowerCase(),
+    );
+  } catch {
+    return false;
+  }
+}
 function signature(value, key) {
   return createHmac("sha256", key).update(value).digest("base64url");
 }
@@ -78,19 +130,20 @@ export function createGateway(
       const entra = env.TRACE_ENTRA_AUTH === "1";
       // Only Azure's ingress strips and injects these headers. Other hosts must never trust them.
       const authorized = entra
-        ? Boolean(
-            options.trustAzureAuthentication &&
-            env.TRACE_ENTRA_ALLOWED_OBJECT_ID &&
-            request.headers.get("x-ms-client-principal-idp") === "aad" &&
-            request.headers.get("x-ms-client-principal-id") ===
-              env.TRACE_ENTRA_ALLOWED_OBJECT_ID,
-          )
+        ? azureAuthorized(request, env, options)
         : validSession(token, TRACE_SESSION_SECRET);
       if (raw === "/api/auth/session")
         return json({
           authenticated: authorized,
           hosted: true,
           provider: entra ? "entra" : "password",
+          ...(entra
+            ? {
+                signInUrl: env.TRACE_ENTRA_EMAIL_DOMAIN
+                  ? "/.auth/login/cir2"
+                  : "/.auth/login/aad",
+              }
+            : {}),
         });
       if (raw === "/api/auth/logout" && request.method === "POST")
         return json(
