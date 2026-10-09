@@ -7,7 +7,6 @@ resource environment 'Microsoft.App/managedEnvironments@2026-07-01' = {
   location: location
   tags: tags
   properties: {
-    appLogsConfiguration: { destination: 'none' }
     workloadProfiles: [{ name: 'Consumption', workloadProfileType: 'Consumption' }]
     zoneRedundant: false
   }
