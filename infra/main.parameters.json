@@ -21,13 +21,22 @@
       "value": "6253f10b-3c4b-4af5-9c3d-b5158e517498"
     },
     "containerImage": {
-      "value": "trace9636registry.azurecr.io/trace-app@sha256:8856eb8e12338a138bfef73b3b65dac80a61f8946f5ebdc0f848e33f437e1029"
+      "value": "trace9636registry.azurecr.io/trace-app@sha256:2be991b6b17a4276165d53d942229014d456f0b234c2b1c32f5d2bbd52715259"
     },
     "aiEndpoint": {
       "value": "https://seantmahoney92-3750-resource.cognitiveservices.azure.com/"
     },
     "aiDeployment": {
       "value": "trace-drafting"
+    },
+    "entraClientId": {
+      "value": "35fbc343-1808-4210-a2e9-5c91e7cb81e3"
+    },
+    "entraTenantId": {
+      "value": "91639769-c9fd-449b-a5af-9e02bd716bfb"
+    },
+    "entraAllowedObjectId": {
+      "value": "6253f10b-3c4b-4af5-9c3d-b5158e517498"
     }
   }
 }

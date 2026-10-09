@@ -389,6 +389,7 @@ export default function App() {
   const [auth, setAuth] = useState<{
     authenticated: boolean;
     hosted: boolean;
+    provider?: "entra" | "password";
   } | null>(null);
   const [authError, setAuthError] = useState("");
   async function checkAuth() {
@@ -401,7 +402,10 @@ export default function App() {
   }
   useEffect(() => {
     void checkAuth();
-    const expired = () => setAuth({ authenticated: false, hosted: true });
+    const expired = () =>
+      setAuth((previous) =>
+        previous ? { ...previous, authenticated: false } : null,
+      );
     window.addEventListener("trace:unauthorized", expired);
     return () => window.removeEventListener("trace:unauthorized", expired);
   }, []);
@@ -417,6 +421,15 @@ export default function App() {
         )}
       </div>
     );
+  if (!auth.authenticated && auth.provider === "entra")
+    return (
+      <div className="loading-state">
+        <p>Sign in with your authorized Microsoft account to open Trace.</p>
+        <a className="btn" href="/.auth/login/aad">
+          Sign in with Microsoft
+        </a>
+      </div>
+    );
   if (!auth.authenticated)
     return <SignIn onSignedIn={() => void checkAuth()} />;
   return (
@@ -425,7 +438,11 @@ export default function App() {
         auth.hosted
           ? () => {
               void request("/auth/logout", "POST")
-                .then(() => setAuth({ authenticated: false, hosted: true }))
+                .then(() => {
+                  if (auth.provider === "entra")
+                    window.location.assign("/.auth/logout");
+                  else setAuth({ authenticated: false, hosted: true });
+                })
                 .catch((e) => setAuthError((e as Error).message));
             }
           : undefined

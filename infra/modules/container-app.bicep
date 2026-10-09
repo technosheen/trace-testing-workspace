@@ -9,9 +9,12 @@ param vaultUri string
 param identityClientId string
 param aiEndpoint string = ''
 param aiDeployment string = ''
+param entraClientId string = ''
+param entraTenantId string = ''
+param entraAllowedObjectId string = ''
 var isPlaceholder = containerImage == 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
 var port = isPlaceholder ? 80 : 8080
-var secretNames = ['runner-key', 'password-hash', 'session-secret']
+var secretNames = empty(entraClientId) ? ['runner-key', 'password-hash', 'session-secret'] : ['runner-key', 'password-hash', 'session-secret', 'microsoft-provider-authentication-secret']
 var secretReferences = [for name in secretNames: {
   name: name
   keyVaultUrl: '${vaultUri}secrets/${name}'
@@ -54,6 +57,8 @@ resource app 'Microsoft.App/containerApps@2026-07-01' = {
           { name: 'TRACE_RUNNER_KEY', secretRef: 'runner-key' }
           { name: 'TRACE_PASSWORD_HASH', secretRef: 'password-hash' }
           { name: 'TRACE_SESSION_SECRET', secretRef: 'session-secret' }
+          { name: 'TRACE_ENTRA_AUTH', value: empty(entraClientId) ? '0' : '1' }
+          { name: 'TRACE_ENTRA_ALLOWED_OBJECT_ID', value: entraAllowedObjectId }
           { name: 'AZURE_CLIENT_ID', value: identityClientId }
           { name: 'AZURE_OPENAI_ENDPOINT', value: aiEndpoint }
           { name: 'AZURE_OPENAI_DEPLOYMENT', value: aiDeployment }
@@ -71,3 +76,34 @@ resource app 'Microsoft.App/containerApps@2026-07-01' = {
   }
 }
 output url string = 'https://${app.properties.configuration.ingress.fqdn}'
+
+resource authentication 'Microsoft.App/containerApps/authConfigs@2026-07-01' = if (!empty(entraClientId)) {
+  parent: app
+  name: 'current'
+  properties: {
+    platform: { enabled: true }
+    httpSettings: { requireHttps: true }
+    globalValidation: {
+      excludedPaths: ['/api/health']
+      redirectToProvider: 'azureactivedirectory'
+      unauthenticatedClientAction: 'RedirectToLoginPage'
+    }
+    identityProviders: {
+      azureActiveDirectory: {
+        enabled: true
+        registration: {
+          clientId: entraClientId
+          clientSecretSettingName: 'microsoft-provider-authentication-secret'
+          openIdIssuer: 'https://login.microsoftonline.com/${entraTenantId}/v2.0'
+        }
+        validation: {
+          allowedAudiences: [entraClientId, 'api://${entraClientId}']
+          defaultAuthorizationPolicy: {
+            allowedPrincipals: { identities: [entraAllowedObjectId] }
+          }
+        }
+      }
+    }
+    login: { preserveUrlFragmentsForLogins: true }
+  }
+}

@@ -11,10 +11,26 @@ const cookie = () => `__Host-trace=${createSession(env.TRACE_SESSION_SECRET)}`;
 const req = (path, options = {}) => new Request(origin + path, options);
 test("local runner exception is explicit and restricted to the internal Azure port", async () => {
   const upstream = async () => Response.json({ ok: true });
-  for (const runner of ["http://127.0.0.1:4310", "http://localhost:4310", "http://127.0.0.1:8080", "http://example.com"]) {
+  for (const runner of [
+    "http://127.0.0.1:4310",
+    "http://localhost:4310",
+    "http://127.0.0.1:8080",
+    "http://example.com",
+  ]) {
     const localEnv = { ...env, TRACE_RUNNER_URL: runner };
-    assert.equal((await createGateway(localEnv, upstream)(req("/api/auth/session"))).status, 503);
-    assert.equal((await createGateway(localEnv, upstream, { allowLocalRunner: true })(req("/api/auth/session"))).status, runner === "http://127.0.0.1:4310" ? 200 : 503);
+    assert.equal(
+      (await createGateway(localEnv, upstream)(req("/api/auth/session")))
+        .status,
+      503,
+    );
+    assert.equal(
+      (
+        await createGateway(localEnv, upstream, { allowLocalRunner: true })(
+          req("/api/auth/session"),
+        )
+      ).status,
+      runner === "http://127.0.0.1:4310" ? 200 : 503,
+    );
   }
 });
 test("sessions reject tampering, expiry and key rotation", () => {
@@ -129,5 +145,89 @@ test("sign-in sets secure cookie; proxy preserves exports without leaking creden
     (await bad(req("/api/workspace", { headers: { cookie: cookie() } })))
       .status,
     502,
+  );
+});
+test("Azure sign-in requires a trusted ingress and the authorized Microsoft identity", async () => {
+  const entraEnv = {
+    ...env,
+    TRACE_ENTRA_AUTH: "1",
+    TRACE_ENTRA_ALLOWED_OBJECT_ID: "sean-object-id",
+  };
+  let calls = 0;
+  const upstream = async (_url, options) => {
+    calls++;
+    assert.equal(options.headers.get("x-ms-client-principal-id"), null);
+    assert.equal(
+      options.headers.get("authorization"),
+      `Bearer ${env.TRACE_RUNNER_KEY}`,
+    );
+    return Response.json({ ok: true });
+  };
+  const headers = {
+    "x-ms-client-principal-id": "sean-object-id",
+    "x-ms-client-principal-idp": "aad",
+  };
+  assert.equal(
+    (
+      await createGateway(
+        entraEnv,
+        upstream,
+      )(req("/api/workspace", { headers }))
+    ).status,
+    401,
+  );
+  const gateway = createGateway(entraEnv, upstream, {
+    trustAzureAuthentication: true,
+  });
+  for (const bad of [
+    {},
+    { ...headers, "x-ms-client-principal-id": "other-user" },
+    { ...headers, "x-ms-client-principal-idp": "google" },
+    { cookie: cookie() },
+  ]) {
+    for (const path of ["/api/workspace", "/artifacts/result.png", "/demo"])
+      assert.equal((await gateway(req(path, { headers: bad }))).status, 401);
+  }
+  assert.equal(calls, 0);
+  assert.equal((await gateway(req("/api/workspace", { headers }))).status, 200);
+  assert.equal(
+    (
+      await gateway(
+        req("/api/sessions", {
+          method: "POST",
+          headers: { ...headers, origin: "https://evil.example" },
+        }),
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await gateway(
+        req("/api/auth/login", {
+          method: "POST",
+          headers: { ...headers, origin },
+        }),
+      )
+    ).status,
+    401,
+  );
+  assert.equal(
+    (await (await gateway(req("/api/auth/session", { headers }))).json())
+      .provider,
+    "entra",
+  );
+  assert.equal(
+    (
+      await (
+        await gateway(
+          req("/api/auth/logout", {
+            method: "POST",
+            headers: { ...headers, origin },
+          }),
+        )
+      ).json()
+    ).signOutUrl,
+    "/.auth/logout",
   );
 });

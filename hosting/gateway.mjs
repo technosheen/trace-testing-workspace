@@ -75,14 +75,33 @@ export function createGateway(
         .map((s) => s.trim())
         .find((s) => s.startsWith(cookieName + "="))
         ?.slice(cookieName.length + 1);
-      const authorized = validSession(token, TRACE_SESSION_SECRET);
+      const entra = env.TRACE_ENTRA_AUTH === "1";
+      // Only Azure's ingress strips and injects these headers. Other hosts must never trust them.
+      const authorized = entra
+        ? Boolean(
+            options.trustAzureAuthentication &&
+            env.TRACE_ENTRA_ALLOWED_OBJECT_ID &&
+            request.headers.get("x-ms-client-principal-idp") === "aad" &&
+            request.headers.get("x-ms-client-principal-id") ===
+              env.TRACE_ENTRA_ALLOWED_OBJECT_ID,
+          )
+        : validSession(token, TRACE_SESSION_SECRET);
       if (raw === "/api/auth/session")
-        return json({ authenticated: authorized, hosted: true });
-      if (raw === "/api/auth/logout" && request.method === "POST")
-        return json({ ok: true }, 200, {
-          "Set-Cookie": `${cookieName}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`,
+        return json({
+          authenticated: authorized,
+          hosted: true,
+          provider: entra ? "entra" : "password",
         });
+      if (raw === "/api/auth/logout" && request.method === "POST")
+        return json(
+          { ok: true, ...(entra ? { signOutUrl: "/.auth/logout" } : {}) },
+          200,
+          {
+            "Set-Cookie": `${cookieName}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`,
+          },
+        );
       if (raw === "/api/auth/login" && request.method === "POST") {
+        if (entra) return json({ error: "Use Microsoft sign-in." }, 401);
         if (Number(request.headers.get("content-length") || 0) > 2048)
           return json({ error: "Request too large." }, 413);
         const body = await request.text();

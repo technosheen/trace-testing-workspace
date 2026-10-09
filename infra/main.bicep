@@ -8,6 +8,9 @@ param deployerObjectId string
 param containerImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
 param aiEndpoint string = ''
 param aiDeployment string = ''
+param entraClientId string = ''
+param entraTenantId string = ''
+param entraAllowedObjectId string = ''
 var tags = {
   'app-onboard-skill': 'true'
   'app-onboard-session-id': sessionId
@@ -74,6 +77,9 @@ module app './modules/container-app.bicep' = {
     identityClientId: identity.outputs.clientId
     aiEndpoint: aiEndpoint
     aiDeployment: aiDeployment
+    entraClientId: entraClientId
+    entraTenantId: entraTenantId
+    entraAllowedObjectId: entraAllowedObjectId
   }
   dependsOn: [roles]
 }
