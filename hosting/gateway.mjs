@@ -28,7 +28,7 @@ const json = (data, status = 200, headers = {}) =>
       ...headers,
     },
   });
-export function createGateway(env = process.env, upstreamFetch = fetch) {
+export function createGateway(env = process.env, upstreamFetch = fetch, options = {}) {
   return async function gateway(request) {
     try {
       const { TRACE_RUNNER_URL, TRACE_RUNNER_KEY, TRACE_SESSION_SECRET } = env;
@@ -40,7 +40,7 @@ export function createGateway(env = process.env, upstreamFetch = fetch) {
         return json({ error: "Hosting configuration is incomplete." }, 503);
       const runner = new URL(TRACE_RUNNER_URL);
       if (
-        runner.protocol !== "https:" ||
+        (runner.protocol !== "https:" && !(options.allowLocalRunner && runner.origin === "http://127.0.0.1:4310")) ||
         runner.username ||
         runner.password ||
         runner.pathname !== "/" ||

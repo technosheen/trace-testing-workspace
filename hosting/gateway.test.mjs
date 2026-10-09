@@ -9,6 +9,14 @@ const env = {
 const origin = "https://trace.example.com";
 const cookie = () => `__Host-trace=${createSession(env.TRACE_SESSION_SECRET)}`;
 const req = (path, options = {}) => new Request(origin + path, options);
+test("local runner exception is explicit and restricted to the internal Azure port", async () => {
+  const upstream = async () => Response.json({ ok: true });
+  for (const runner of ["http://127.0.0.1:4310", "http://localhost:4310", "http://127.0.0.1:8080", "http://example.com"]) {
+    const localEnv = { ...env, TRACE_RUNNER_URL: runner };
+    assert.equal((await createGateway(localEnv, upstream)(req("/api/auth/session"))).status, 503);
+    assert.equal((await createGateway(localEnv, upstream, { allowLocalRunner: true })(req("/api/auth/session"))).status, runner === "http://127.0.0.1:4310" ? 200 : 503);
+  }
+});
 test("sessions reject tampering, expiry and key rotation", () => {
   const value = createSession(env.TRACE_SESSION_SECRET, 1000000);
   assert.ok(validSession(value, env.TRACE_SESSION_SECRET, 1000001));

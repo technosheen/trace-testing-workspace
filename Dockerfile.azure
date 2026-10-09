@@ -1,0 +1,19 @@
+FROM node:24-bookworm-slim AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY tsconfig*.json vite.config.ts index.html ./
+COPY src ./src
+RUN npm run build
+
+FROM node:24-bookworm-slim
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npx playwright install --with-deps chromium
+COPY server ./server
+COPY hosting ./hosting
+COPY scripts/start-azure.mjs ./scripts/start-azure.mjs
+COPY --from=build /app/dist ./dist
+ENV NODE_ENV=production TRACE_HOSTED=1 TRACE_BROWSER_CHANNEL=chromium TRACE_DATA_DIR=/app/storage
+EXPOSE 8080
+CMD ["node", "scripts/start-azure.mjs"]
