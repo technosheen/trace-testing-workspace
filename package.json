@@ -12,8 +12,10 @@
     "password:hash": "node scripts/password-hash.mjs"
   },
   "dependencies": {
+    "@azure/identity": "^4.13.3",
     "express": "^5.1.0",
     "lucide-react": "^0.468.0",
+    "openai": "^7.31.0",
     "playwright": "^1.56.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

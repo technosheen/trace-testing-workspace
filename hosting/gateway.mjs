@@ -28,7 +28,11 @@ const json = (data, status = 200, headers = {}) =>
       ...headers,
     },
   });
-export function createGateway(env = process.env, upstreamFetch = fetch, options = {}) {
+export function createGateway(
+  env = process.env,
+  upstreamFetch = fetch,
+  options = {},
+) {
   return async function gateway(request) {
     try {
       const { TRACE_RUNNER_URL, TRACE_RUNNER_KEY, TRACE_SESSION_SECRET } = env;
@@ -40,7 +44,11 @@ export function createGateway(env = process.env, upstreamFetch = fetch, options 
         return json({ error: "Hosting configuration is incomplete." }, 503);
       const runner = new URL(TRACE_RUNNER_URL);
       if (
-        (runner.protocol !== "https:" && !(options.allowLocalRunner && runner.origin === "http://127.0.0.1:4310")) ||
+        (runner.protocol !== "https:" &&
+          !(
+            options.allowLocalRunner &&
+            runner.origin === "http://127.0.0.1:4310"
+          )) ||
         runner.username ||
         runner.password ||
         runner.pathname !== "/" ||
@@ -136,7 +144,9 @@ export function createGateway(env = process.env, upstreamFetch = fetch, options 
         headers,
         body,
         redirect: "manual",
-        signal: AbortSignal.timeout(20000),
+        signal: AbortSignal.timeout(
+          raw === "/api/sessions" && request.method === "POST" ? 75000 : 20000,
+        ),
       });
       if (response.status >= 300 && response.status < 400)
         return json({ error: "Runner redirect refused." }, 502);

@@ -260,10 +260,16 @@ function WorkspaceApp({ onSignOut }: { onSignOut?: () => void }) {
               onImport={() => setModal({ type: "import" })}
             />
           )}{" "}
-          {page === "settings" && <SettingsPage data={data} />}{" "}
+          {page === "settings" && (
+            <SettingsPage
+              data={data}
+              onGenerate={() => setModal({ type: "new" })}
+            />
+          )}{" "}
           {modal?.type === "new" && (
             <NewSession
               environments={data.environments}
+              aiAvailable={Boolean(data.service.ai?.configured)}
               busy={busy}
               onClose={() => setModal(null)}
               onSubmit={(body) => void create(body)}

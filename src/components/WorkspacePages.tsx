@@ -162,7 +162,7 @@ export function KnowledgeBase({
         <Empty
           icon={<BookOpen size={28} />}
           title="A shared understanding starts here"
-          text="Save product behavior, known limitations, and review guidance. Notes are available to you during triage; they do not change the browser checks."
+          text="Save product behavior, known limitations, and review guidance. Notes help during triage and can be included when you generate an AI test plan."
           action={
             <button className="btn" onClick={() => setNewNote(true)}>
               <Plus size={16} />
@@ -535,7 +535,13 @@ export function Library({
     </>
   );
 }
-export function SettingsPage({ data }: { data: Workspace }) {
+export function SettingsPage({
+  data,
+  onGenerate,
+}: {
+  data: Workspace;
+  onGenerate: () => void;
+}) {
   return (
     <>
       <PageHeading
@@ -563,7 +569,11 @@ export function SettingsPage({ data }: { data: Workspace }) {
           <dt>Run limit</dt>
           <dd>3 minutes per run · up to 25 cases</dd>
           <dt>AI generation</dt>
-          <dd>Not connected; check plans use explicit rules</dd>
+          <dd>
+            {data.service.ai?.configured
+              ? `${data.service.ai.lastSuccessAt ? "Connected" : "Configured · awaiting first draft"} · ${data.service.ai.provider}`
+              : "Not connected; standard checks are available"}
+          </dd>
           <dt>Scheduled runs</dt>
           <dd>Require this service to be running</dd>
         </dl>
@@ -588,6 +598,40 @@ export function SettingsPage({ data }: { data: Workspace }) {
           <ExternalLink size={15} />
         </a>
       </div>
+      {data.service.ai?.configured && (
+        <div className="settings-section">
+          <div>
+            <FileText size={24} />
+            <h3>AI test generation</h3>
+          </div>
+          <p>
+            Describe what matters, then review a plan of supported browser
+            checks. AI can select checks and add exact phrases from your
+            requirements. Requested workflows that the runner cannot perform are
+            listed separately.
+          </p>
+          <dl>
+            <dt>Model deployment</dt>
+            <dd>{data.service.ai.model}</dd>
+            <dt>Authentication</dt>
+            <dd>Azure managed identity · no stored API key</dd>
+            <dt>Daily limit</dt>
+            <dd>{data.service.ai.remainingToday} of 60 drafts remaining</dd>
+          </dl>
+          <p>
+            Your brief is sent to Azure AI. Knowledge notes are included only
+            when you select them. Generation does not visit the website or start
+            a run.
+          </p>
+          <button
+            className="btn primary"
+            onClick={onGenerate}
+            disabled={data.service.ai.generating}
+          >
+            Generate a test plan
+          </button>
+        </div>
+      )}
     </>
   );
 }

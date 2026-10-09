@@ -125,6 +125,17 @@ export function SessionDetail({
           )}
         </div>
       </div>
+      {session.generation && (
+        <div className="ai-plan-note">
+          <strong>AI draft · {session.generation.provider}</strong>
+          <p>{session.generation.summary}</p>
+          <ul>
+            {session.generation.limitations.map((text, i) => (
+              <li key={i}>{text}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="report-summary">
         <div>
           <span className="summary-icon">

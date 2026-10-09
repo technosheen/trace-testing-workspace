@@ -6,6 +6,9 @@ param environmentDomain string
 param identityId string
 param registryServer string
 param vaultUri string
+param identityClientId string
+param aiEndpoint string = ''
+param aiDeployment string = ''
 var isPlaceholder = containerImage == 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
 var port = isPlaceholder ? 80 : 8080
 var secretNames = ['runner-key', 'password-hash', 'session-secret']
@@ -51,6 +54,9 @@ resource app 'Microsoft.App/containerApps@2026-07-01' = {
           { name: 'TRACE_RUNNER_KEY', secretRef: 'runner-key' }
           { name: 'TRACE_PASSWORD_HASH', secretRef: 'password-hash' }
           { name: 'TRACE_SESSION_SECRET', secretRef: 'session-secret' }
+          { name: 'AZURE_CLIENT_ID', value: identityClientId }
+          { name: 'AZURE_OPENAI_ENDPOINT', value: aiEndpoint }
+          { name: 'AZURE_OPENAI_DEPLOYMENT', value: aiDeployment }
         ]
         volumeMounts: isPlaceholder ? [] : [{ volumeName: 'trace-data', mountPath: '/app/storage' }]
         probes: isPlaceholder ? [] : [

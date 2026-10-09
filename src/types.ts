@@ -1,9 +1,5 @@
 export type Status =
-  | "not_run"
-  | "running"
-  | "passed"
-  | "issues_found"
-  | "blocked";
+  "not_run" | "running" | "passed" | "issues_found" | "blocked";
 export type Evidence = {
   id: string;
   at: string;
@@ -63,6 +59,14 @@ export type Run = {
   findings: Finding[];
 };
 export type Session = {
+  generation?: {
+    provider: string;
+    model: string;
+    at: string;
+    summary: string;
+    limitations: string[];
+    knowledgeNotes: number;
+  };
   id: string;
   name: string;
   environmentId: string;
@@ -111,5 +115,17 @@ export type Workspace = {
   environments: Environment[];
   schedules: Schedule[];
   knowledge: Knowledge[];
-  service: { mode: string; engine: string; activeRuns: number };
+  service: {
+    mode: string;
+    engine: string;
+    activeRuns: number;
+    ai?: {
+      configured: boolean;
+      provider: string;
+      model: string | null;
+      generating: boolean;
+      remainingToday: number;
+      lastSuccessAt: string | null;
+    };
+  };
 };

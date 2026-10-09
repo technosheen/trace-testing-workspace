@@ -6,6 +6,7 @@ import {
   Waypoints,
   Box,
   Upload,
+  Sparkles,
 } from "lucide-react";
 import type { Environment } from "../types";
 import { Dialog } from "./ui";
@@ -34,17 +35,21 @@ export function NewSession({
   onClose,
   onSubmit,
   busy,
+  aiAvailable = false,
 }: {
   environments: Environment[];
   onClose: () => void;
   onSubmit: (body: unknown) => void;
   busy: boolean;
+  aiAvailable?: boolean;
 }) {
   const [mode, setMode] = useState("smoke");
   const [name, setName] = useState("");
   const [environmentId, setEnvironment] = useState(environments[0]?.id || "");
   const [brief, setBrief] = useState("");
   const [expectedText, setExpectedText] = useState("");
+  const [generation, setGeneration] = useState(aiAvailable ? "ai" : "standard");
+  const [includeKnowledge, setIncludeKnowledge] = useState(false);
   function submit(e: FormEvent) {
     e.preventDefault();
     onSubmit({
@@ -55,13 +60,28 @@ export function NewSession({
       mode,
       brief,
       expectedText,
+      generation,
+      includeKnowledge,
     });
   }
   return (
-    <Dialog title="New session" onClose={onClose} wide>
+    <Dialog title="New session" onClose={busy ? () => {} : onClose} wide>
       <form onSubmit={submit}>
         <div className="dialog-body">
           <p className="form-intro">What would you like to verify?</p>
+          {aiAvailable && (
+            <label>
+              Plan creation
+              <select
+                value={generation}
+                disabled={busy}
+                onChange={(e) => setGeneration(e.target.value)}
+              >
+                <option value="ai">Generate with AI</option>
+                <option value="standard">Standard checks</option>
+              </select>
+            </label>
+          )}
           <div className="mode-grid">
             {modes.map((m) => (
               <button
@@ -102,17 +122,20 @@ export function NewSession({
             </label>
           </div>
           <label>
-            Testing brief <span className="optional">optional</span>
+            Testing brief{" "}
+            {generation !== "ai" && <span className="optional">optional</span>}
             <textarea
               value={brief}
               onChange={(e) => setBrief(e.target.value)}
               placeholder="Describe the scope and what matters to your team."
               rows={3}
               maxLength={3000}
+              required={generation === "ai"}
             />
             <small>
-              The brief stays with your report. The selected mode determines the
-              automated checks.
+              {generation === "ai"
+                ? "AI drafts supported checks from your brief. Your brief is sent to Azure AI; the website is not visited until you run the checks."
+                : "The brief stays with your report. The selected mode determines the automated checks."}
             </small>
           </label>
           <label>
@@ -124,6 +147,19 @@ export function NewSession({
               maxLength={200}
             />
           </label>
+          {generation === "ai" && (
+            <div className="form-note">
+              <label className="ai-knowledge-option">
+                <input
+                  type="checkbox"
+                  checked={includeKnowledge}
+                  disabled={busy}
+                  onChange={(e) => setIncludeKnowledge(e.target.checked)}
+                />
+                Include workspace knowledge notes in the AI draft
+              </label>
+            </div>
+          )}
           <div className="form-note">
             <Box size={16} />
             <span>
@@ -133,11 +169,23 @@ export function NewSession({
           </div>
         </div>
         <div className="dialog-foot">
-          <button type="button" className="btn" onClick={onClose}>
+          <button
+            type="button"
+            className="btn"
+            disabled={busy}
+            onClick={onClose}
+          >
             Cancel
           </button>
           <button className="btn primary" disabled={busy || !environmentId}>
-            {busy ? "Creating…" : "Create test plan"}
+            {generation === "ai" && <Sparkles size={16} />}
+            {busy
+              ? generation === "ai"
+                ? "Generating…"
+                : "Creating…"
+              : generation === "ai"
+                ? "Generate test plan"
+                : "Create test plan"}
             <ArrowRight size={16} />
           </button>
         </div>

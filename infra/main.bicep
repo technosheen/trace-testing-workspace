@@ -6,6 +6,8 @@ param deployedBy string
 param createdAt string
 param deployerObjectId string
 param containerImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+param aiEndpoint string = ''
+param aiDeployment string = ''
 var tags = {
   'app-onboard-skill': 'true'
   'app-onboard-session-id': sessionId
@@ -69,6 +71,9 @@ module app './modules/container-app.bicep' = {
     identityId: identity.outputs.id
     registryServer: registry.outputs.loginServer
     vaultUri: vault.outputs.uri
+    identityClientId: identity.outputs.clientId
+    aiEndpoint: aiEndpoint
+    aiDeployment: aiDeployment
   }
   dependsOn: [roles]
 }

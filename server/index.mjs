@@ -8,9 +8,11 @@ import { planCases, checkKinds } from "./checks.mjs";
 import { validateTarget } from "./policy.mjs";
 import { runSession, cancel, isRunning, active } from "./runner.mjs";
 import { demo, product } from "./demo.mjs";
+import { createAiPlanner } from "./ai.mjs";
 
 import { hosted, authenticated, verifyPassword } from "./auth.mjs";
 const app = express();
+const ai = createAiPlanner({ db, save });
 const port = Number(process.env.PORT || 4310);
 const hosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
 const origins = new Set([
@@ -48,6 +50,8 @@ const sessionSchema = z.object({
   mode: z.enum(["smoke", "accessibility", "navigation"]).default("smoke"),
   brief: z.string().max(3000).default(""),
   expectedText: z.string().max(200).default(""),
+  generation: z.enum(["standard", "ai"]).default("standard"),
+  includeKnowledge: z.boolean().default(false),
 });
 function required(items, value) {
   const item = items.find((item) => item.id === value);
@@ -58,7 +62,7 @@ function required(items, value) {
   }
   return item;
 }
-function newSession(input) {
+function newSession(input, draft) {
   const env = required(db.environments, input.environmentId);
   const session = {
     id: id(),
@@ -71,7 +75,8 @@ function newSession(input) {
     status: "ready",
     createdAt: now(),
     updatedAt: now(),
-    cases: planCases(input.mode, input.expectedText),
+    cases: draft?.cases || planCases(input.mode, input.expectedText),
+    ...(draft ? { generation: draft.generation } : {}),
     findings: [],
     activity: [],
     history: [],
@@ -108,6 +113,7 @@ app.get("/api/workspace", (req, res) =>
       mode: hosted ? "hosted" : "local",
       engine: "Playwright browser checks",
       activeRuns: active.size,
+      ai: ai.status(),
     },
   }),
 );
@@ -176,9 +182,16 @@ app.delete("/api/environments/:id", (req, res) => {
   save();
   res.json({ ok: true });
 });
-app.post("/api/sessions", (req, res) =>
-  res.status(201).json(newSession(sessionSchema.parse(req.body))),
-);
+app.post("/api/sessions", async (req, res) => {
+  const input = sessionSchema.parse(req.body);
+  const env = required(db.environments, input.environmentId);
+  const draft =
+    input.generation === "ai"
+      ? await ai.generate(input, env, db.knowledge)
+      : undefined;
+  // Generation creates a reviewable plan; it never starts a browser run.
+  res.status(201).json(newSession(input, draft));
+});
 app.get("/api/sessions/:id", (req, res) =>
   res.json(required(db.sessions, req.params.id)),
 );
