@@ -19,6 +19,9 @@
     },
     "deployerObjectId": {
       "value": "6253f10b-3c4b-4af5-9c3d-b5158e517498"
+    },
+    "containerImage": {
+      "value": "trace9636registry.azurecr.io/trace-app@sha256:5634ef6514b1754e07ec0fb193cbd269040515a336969ed6723497ca10c3b303"
     }
   }
 }
