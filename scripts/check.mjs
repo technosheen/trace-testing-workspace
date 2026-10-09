@@ -16,7 +16,12 @@ if (!filename) {
 async function api(url, method = "GET", body) {
   const response = await fetch(`${service}/api${url}`, {
     method,
-    headers: body ? { "Content-Type": "application/json" } : {},
+    headers: {
+      ...(body ? { "Content-Type": "application/json" } : {}),
+      ...(process.env.TRACE_RUNNER_KEY
+        ? { Authorization: `Bearer ${process.env.TRACE_RUNNER_KEY}` }
+        : {}),
+    },
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await response.json();

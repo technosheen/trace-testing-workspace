@@ -83,7 +83,11 @@ export function Environments({
                   <span className="soft-label">Built-in demo</span>
                 )}
               </h3>
-              <a href={env.url} target="_blank" rel="noreferrer">
+              <a
+                href={env.id === "demo" ? "/demo" : env.url}
+                target="_blank"
+                rel="noreferrer"
+              >
                 {env.url}
                 <ArrowUpRight size={13} />
               </a>
@@ -280,7 +284,7 @@ export function Schedules({
       <div className="schedule-note">
         <ClockIcon />
         <p>
-          Scheduled checks run while the local service is on. Missed runs are
+          Scheduled checks run while the testing service is on. Missed runs are
           picked up when it restarts.
         </p>
       </div>
@@ -536,7 +540,7 @@ export function SettingsPage({ data }: { data: Workspace }) {
     <>
       <PageHeading
         title="Workspace settings"
-        text="A local testing workspace, with evidence you can inspect."
+        text="Your testing workspace, with evidence you can inspect."
       />
       <div className="settings-section">
         <div>
@@ -545,7 +549,11 @@ export function SettingsPage({ data }: { data: Workspace }) {
         </div>
         <dl>
           <dt>Storage</dt>
-          <dd>On this computer</dd>
+          <dd>
+            {data.service.mode === "hosted"
+              ? "Persistent runner storage"
+              : "On this computer"}
+          </dd>
           <dt>Browser engine</dt>
           <dd>Playwright · Chromium</dd>
           <dt>Execution</dt>

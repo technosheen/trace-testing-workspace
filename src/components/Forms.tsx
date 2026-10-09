@@ -192,7 +192,7 @@ export function EnvironmentForm({
               maxLength={2000}
             />
             <small>
-              Use a public website. The built-in demo is available for local
+              Use a public website. The built-in demo is available for isolated
               testing.
             </small>
           </label>

@@ -22,6 +22,7 @@ import {
   Schedules,
   SettingsPage,
 } from "./components/WorkspacePages";
+import { SignIn } from "./components/SignIn";
 import { Dialog, Toast } from "./components/ui";
 
 type Modal =
@@ -37,7 +38,7 @@ type Modal =
 function readRoute() {
   return location.hash.replace(/^#\/?/, "") || "sessions";
 }
-export default function App() {
+function WorkspaceApp({ onSignOut }: { onSignOut?: () => void }) {
   const { data, error, refresh } = useWorkspace();
   const [route, setRoute] = useState(readRoute);
   const [modal, setModal] = useState<Modal | null>(null);
@@ -105,6 +106,8 @@ export default function App() {
       title={title}
       go={go}
       connected={Boolean(data) && !error}
+      hosted={data?.service.mode === "hosted"}
+      onSignOut={onSignOut}
     >
       {error && (
         <div className="connection-error" role="alert">
@@ -373,5 +376,54 @@ export default function App() {
       )}
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </Shell>
+  );
+}
+
+export default function App() {
+  const [auth, setAuth] = useState<{
+    authenticated: boolean;
+    hosted: boolean;
+  } | null>(null);
+  const [authError, setAuthError] = useState("");
+  async function checkAuth() {
+    try {
+      setAuth(await request("/auth/session"));
+      setAuthError("");
+    } catch (e) {
+      setAuthError((e as Error).message);
+    }
+  }
+  useEffect(() => {
+    void checkAuth();
+    const expired = () => setAuth({ authenticated: false, hosted: true });
+    window.addEventListener("trace:unauthorized", expired);
+    return () => window.removeEventListener("trace:unauthorized", expired);
+  }, []);
+  if (!auth)
+    return (
+      <div className="loading-state">
+        <LoaderCircle className="spin" />
+        <p>{authError || "Opening your workspace…"}</p>
+        {authError && (
+          <button className="btn" onClick={() => void checkAuth()}>
+            Retry
+          </button>
+        )}
+      </div>
+    );
+  if (!auth.authenticated)
+    return <SignIn onSignedIn={() => void checkAuth()} />;
+  return (
+    <WorkspaceApp
+      onSignOut={
+        auth.hosted
+          ? () => {
+              void request("/auth/logout", "POST")
+                .then(() => setAuth({ authenticated: false, hosted: true }))
+                .catch((e) => setAuthError((e as Error).message));
+            }
+          : undefined
+      }
+    />
   );
 }

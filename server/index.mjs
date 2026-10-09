@@ -9,6 +9,7 @@ import { validateTarget } from "./policy.mjs";
 import { runSession, cancel, isRunning, active } from "./runner.mjs";
 import { demo, product } from "./demo.mjs";
 
+import { hosted, authenticated, verifyPassword } from "./auth.mjs";
 const app = express();
 const port = Number(process.env.PORT || 4310);
 const hosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
@@ -19,7 +20,11 @@ const origins = new Set([
   "http://localhost:5173",
 ]);
 app.use((req, res, next) => {
-  if (!hosts.has(req.headers.host))
+  if (hosted && req.path === "/api/health" && req.method === "GET")
+    return res.json({ status: "ok" });
+  if (hosted && !/^\/demo(?:\/|$)/.test(req.path) && !authenticated(req))
+    return res.status(401).json({ error: "Authentication required." });
+  if (!hosted && !hosts.has(req.headers.host))
     return res.status(403).json({ error: "Local workspace only." });
   if (
     req.path.startsWith("/api") &&
@@ -100,7 +105,7 @@ app.get("/api/workspace", (req, res) =>
   res.json({
     ...db,
     service: {
-      mode: "local",
+      mode: hosted ? "hosted" : "local",
       engine: "Playwright browser checks",
       activeRuns: active.size,
     },
@@ -109,6 +114,17 @@ app.get("/api/workspace", (req, res) =>
 app.get("/api/health", (req, res) =>
   res.json({ status: "ok", activeRuns: active.size }),
 );
+app.get("/api/auth/session", (req, res) =>
+  res.json({ authenticated: true, hosted }),
+);
+app.post("/api/auth/login", (req, res) => {
+  if (!hosted) return res.json({ authenticated: true });
+  const result = verifyPassword(
+    req.body.password,
+    req.headers["x-trace-client"] || req.ip,
+  );
+  res.status(result.status).json(result);
+});
 if (process.env.TRACE_TEST === "1") {
   let browserWrites = 0,
     privateReads = 0;
@@ -414,7 +430,7 @@ app.use(
 app.use("/api", (req, res) =>
   res.status(404).json({ error: "API route not found." }),
 );
-if (fs.existsSync("dist/index.html")) {
+if (!hosted && fs.existsSync("dist/index.html")) {
   app.use(express.static("dist"));
   app.get("/{*path}", (req, res) =>
     res.sendFile(path.resolve("dist/index.html")),
@@ -422,16 +438,14 @@ if (fs.existsSync("dist/index.html")) {
 }
 app.use((error, req, res, next) => {
   const status = error.status || 400;
-  res
-    .status(status)
-    .json({
-      error:
-        error instanceof z.ZodError
-          ? error.issues.map((i) => i.message).join(" ")
-          : error.message || "Request failed.",
-    });
+  res.status(status).json({
+    error:
+      error instanceof z.ZodError
+        ? error.issues.map((i) => i.message).join(" ")
+        : error.message || "Request failed.",
+  });
 });
-const server = app.listen(port, "127.0.0.1", () =>
+const server = app.listen(port, hosted ? "0.0.0.0" : "127.0.0.1", () =>
   console.log(`Trace service: http://127.0.0.1:${port}`),
 );
 let ticking = false;

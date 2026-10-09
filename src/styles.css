@@ -2271,3 +2271,53 @@ svg {
 .mode-option strong {
   color: #414a5f;
 }
+
+.sign-in {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #faf9fd;
+}
+.sign-in form {
+  width: min(100%, 400px);
+  padding: 36px;
+  background: white;
+  border: 1px solid #e9e6ef;
+  border-radius: 16px;
+  box-shadow: 0 10px 40px #24113a08;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.sign-in h1 {
+  font-size: 28px;
+  margin: 8px 0 0;
+  letter-spacing: -0.7px;
+}
+.sign-in p {
+  color: #756f82;
+  margin: 0 0 12px;
+}
+.sign-in label {
+  font-size: 13px;
+  font-weight: 600;
+}
+.sign-in input {
+  height: 44px;
+  padding: 10px;
+  border: 1px solid #dcd7e6;
+  border-radius: 8px;
+  font: inherit;
+}
+.sign-in input:focus {
+  outline: 2px solid #8251e8;
+  outline-offset: 2px;
+}
+.sign-in-icon {
+  color: #8251e8;
+}
+.sign-in .sign-in-error {
+  color: #b42338;
+  font-size: 13px;
+}

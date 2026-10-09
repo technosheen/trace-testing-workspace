@@ -12,6 +12,8 @@ export async function request<T>(
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const result = await response.json();
+  if (response.status === 401 && !path.startsWith("/auth/"))
+    window.dispatchEvent(new Event("trace:unauthorized"));
   if (!response.ok)
     throw new Error(result.error || "The request could not be completed.");
   return result;

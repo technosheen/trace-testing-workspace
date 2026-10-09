@@ -90,7 +90,11 @@ export function SessionDetail({
           <p>
             <span>{session.environmentName}</span>
             <span className="separator">·</span>
-            <a href={session.url} target="_blank" rel="noreferrer">
+            <a
+              href={session.environmentId === "demo" ? "/demo" : session.url}
+              target="_blank"
+              rel="noreferrer"
+            >
               {session.url}
               <ArrowUpRight size={13} />
             </a>

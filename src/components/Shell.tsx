@@ -26,12 +26,16 @@ export function Shell({
   title,
   go,
   connected,
+  hosted = false,
+  onSignOut,
   children,
 }: {
   page: string;
   title: string;
   go: (v: string) => void;
   connected: boolean;
+  hosted?: boolean;
+  onSignOut?: () => void;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -95,7 +99,7 @@ export function Shell({
         <div className="sidebar-bottom">
           <button className="service-link" onClick={() => navigate("settings")}>
             <span className={`service-dot ${connected ? "" : "offline"}`} />
-            {connected ? "Local service running" : "Service disconnected"}
+            {connected ? "Testing service running" : "Service disconnected"}
             <ChevronRight size={15} />
           </button>
           <button
@@ -134,9 +138,14 @@ export function Shell({
             onClick={() => navigate("settings")}
           >
             <Laptop size={19} />
-            <span>Local workspace</span>
+            <span>{hosted ? "Hosted workspace" : "Local workspace"}</span>
             <ChevronDown size={14} />
           </button>
+          {onSignOut && (
+            <button className="btn" onClick={onSignOut}>
+              Sign out
+            </button>
+          )}
         </header>
         <main className="content">{children}</main>
       </div>

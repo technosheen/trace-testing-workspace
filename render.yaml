@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: trace-runner
+    runtime: docker
+    plan: 1c-2g
+    region: virginia
+    numInstances: 1
+    healthCheckPath: /api/health
+    disk:
+      name: trace-data
+      mountPath: /app/storage
+      sizeGB: 1
+    envVars:
+      - key: TRACE_RUNNER_KEY
+        generateValue: true
+      - key: TRACE_PASSWORD_HASH
+        sync: false
