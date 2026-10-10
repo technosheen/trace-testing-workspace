@@ -208,7 +208,9 @@ export function createGateway(
       let body;
       if (mutation) {
         body = await request.text();
-        if (Buffer.byteLength(body) > 65536)
+        const limit = raw === "/api/import" && request.method === "POST"
+          ? 512 * 1024 : 65536;
+        if (Buffer.byteLength(body) > limit)
           return json({ error: "Request too large." }, 413);
       }
       const response = await upstreamFetch(target, {

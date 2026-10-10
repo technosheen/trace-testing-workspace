@@ -310,3 +310,12 @@ test("CIR2 access requires its verified organization and an exact email domain",
     200,
   );
 });
+test('large YAML imports pass while oversized imports and other writes stay bounded', async () => {
+  let calls = 0;
+  const gateway = createGateway(env, async () => { calls++; return Response.json({ok:true}); });
+  const post = (path,size) => req(path,{method:'POST',headers:{cookie:cookie(),origin},body:'x'.repeat(size)});
+  assert.equal((await gateway(post('/api/import',150000))).status,200);
+  assert.equal((await gateway(post('/api/import',512*1024+1))).status,413);
+  assert.equal((await gateway(post('/api/sessions',65537))).status,413);
+  assert.equal(calls,1);
+});
