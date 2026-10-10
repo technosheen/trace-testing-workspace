@@ -10,6 +10,7 @@ param identityClientId string
 param aiEndpoint string = ''
 param aiDeployment string = ''
 param entraClientId string = ''
+param entraEnabled bool = false
 param entraTenantId string = ''
 param entraAllowedObjectId string = ''
 param entraCir2TenantId string = ''
@@ -59,7 +60,7 @@ resource app 'Microsoft.App/containerApps@2026-07-01' = {
           { name: 'TRACE_RUNNER_KEY', secretRef: 'runner-key' }
           { name: 'TRACE_PASSWORD_HASH', secretRef: 'password-hash' }
           { name: 'TRACE_SESSION_SECRET', secretRef: 'session-secret' }
-          { name: 'TRACE_ENTRA_AUTH', value: empty(entraClientId) ? '0' : '1' }
+          { name: 'TRACE_ENTRA_AUTH', value: entraEnabled && !empty(entraClientId) ? '1' : '0' }
           { name: 'TRACE_ENTRA_ALLOWED_OBJECT_ID', value: entraAllowedObjectId }
           { name: 'TRACE_ENTRA_CIR2_TENANT_ID', value: entraCir2TenantId }
           { name: 'TRACE_ENTRA_EMAIL_DOMAIN', value: entraEmailDomain }
@@ -85,7 +86,7 @@ resource authentication 'Microsoft.App/containerApps/authConfigs@2026-07-01' = i
   parent: app
   name: 'current'
   properties: {
-    platform: { enabled: true }
+    platform: { enabled: entraEnabled }
     httpSettings: { requireHttps: true }
     globalValidation: {
       excludedPaths: ['/api/health']

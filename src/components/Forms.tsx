@@ -366,8 +366,8 @@ export function ImportForm({
               onChange={async (e) => {
                 const file = e.target.files?.[0];
                 if (!file) return;
-                if (file.size > 50000) {
-                  setError("Choose a YAML file smaller than 50 KB.");
+                if (file.size > 500000) {
+                  setError("Choose a YAML file smaller than 500 KB.");
                   return;
                 }
                 setError("");
@@ -387,7 +387,7 @@ export function ImportForm({
                 "schema: trace/test/v1\nname: Homepage checks\nchecks:\n  - kind: title\n    name: Page has a title\n    acceptance: Document title is not empty"
               }
               rows={9}
-              maxLength={50000}
+              maxLength={500000}
             />
           </label>
           <label>
@@ -404,7 +404,7 @@ export function ImportForm({
             </select>
           </label>
           <small>
-            Trace manifests use their own schema; Momentic YAML is not imported.
+            Use trace/test/v2 for multi-step journeys (up to 200 tests). Actions include navigation, clicks, hover, field input, selections and assertions. Form submissions and network writes remain disabled.
           </small>
         </div>
         <div className="dialog-foot">

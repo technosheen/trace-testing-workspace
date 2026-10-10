@@ -3,6 +3,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { z } from "zod";
 import YAML from "yaml";
+import { manifestSchema } from "./manifest.mjs";
 import { db, save, id, now, event, dataDir } from "./store.mjs";
 import { planCases, checkKinds } from "./checks.mjs";
 import { validateTarget } from "./policy.mjs";
@@ -37,7 +38,7 @@ app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   next();
 });
-app.use(express.json({ limit: "64kb" }));
+app.use(express.json({ limit: "512kb" }));
 const text = z.string().trim().min(1).max(500);
 const environmentSchema = z.object({
   name: text.max(80),
@@ -293,7 +294,7 @@ app.get("/api/sessions/:id/export", (req, res) => {
   if (format === "yaml") {
     // Trace's executable manifest, not a claim of Momentic YAML compatibility.
     const manifest = {
-      schema: "trace/test/v1",
+      schema: session.cases.some(c => c.kind === "journey") ? "trace/test/v2" : "trace/test/v1",
       name: session.name,
       url: session.url,
       policy: "read-only",
@@ -303,6 +304,7 @@ app.get("/api/sessions/:id/export", (req, res) => {
         name: c.name,
         acceptance: c.acceptance,
         ...(c.value ? { value: c.value } : {}),
+        ...(c.actions ? { actions: c.actions, preconditions: c.preconditions } : {}),
       })),
     };
     res
@@ -315,31 +317,10 @@ app.get("/api/sessions/:id/export", (req, res) => {
 });
 app.post("/api/import", async (req, res) => {
   const body = z
-    .object({ yaml: z.string().max(50000), environmentId: text })
+    .object({ yaml: z.string().max(500000), environmentId: text })
     .parse(req.body);
   const parsed = YAML.parse(body.yaml, { maxAliasCount: 0 });
-  const manifest = z
-    .object({
-      schema: z.literal("trace/test/v1"),
-      name: text.max(120),
-      checks: z
-        .array(
-          z
-            .object({
-              kind: z.enum(checkKinds),
-              name: text.max(120),
-              acceptance: text,
-              value: z.string().max(200).optional(),
-            })
-            .refine(
-              (v) => !["text", "selector"].includes(v.kind) || Boolean(v.value),
-              "Text and selector checks require a value.",
-            ),
-        )
-        .min(1)
-        .max(25),
-    })
-    .parse(parsed);
+  const manifest = manifestSchema.parse(parsed);
   const session = newSession({
     name: manifest.name,
     environmentId: body.environmentId,
@@ -350,8 +331,8 @@ app.post("/api/import", async (req, res) => {
   session.cases = manifest.checks.map((c) => ({
     ...c,
     id: id(),
-    preconditions: ["Target page is reachable."],
-    steps: ["Open the target.", c.acceptance],
+    preconditions: c.preconditions || ["Target page is reachable."],
+    steps: c.actions ? c.actions.map((a,i) => `${i+1}. ${a.action}${a.url ? ": " + a.url : ""}${a.target ? ": " + (a.target.selector || a.target.role + " “" + a.target.name + "”") : ""}`) : ["Open the target.", c.acceptance],
     status: "not_run",
     controls: [],
     evidence: [],

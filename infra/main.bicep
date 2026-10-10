@@ -9,6 +9,7 @@ param containerImage string = 'mcr.microsoft.com/azuredocs/containerapps-hellowo
 param aiEndpoint string = ''
 param aiDeployment string = ''
 param entraClientId string = ''
+param entraEnabled bool = false
 param entraTenantId string = ''
 param entraAllowedObjectId string = ''
 param entraCir2TenantId string = ''
@@ -80,6 +81,7 @@ module app './modules/container-app.bicep' = {
     aiEndpoint: aiEndpoint
     aiDeployment: aiDeployment
     entraClientId: entraClientId
+    entraEnabled: entraEnabled
     entraTenantId: entraTenantId
     entraAllowedObjectId: entraAllowedObjectId
     entraCir2TenantId: entraCir2TenantId

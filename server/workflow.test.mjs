@@ -9,7 +9,7 @@ import YAML from "yaml";
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 test(
   "real browser workflow, reproduction, regression round-trip, cancellation and durable review",
-  { timeout: 90000 },
+  { timeout: 120000 },
   async (t) => {
     const temp = await mkdtemp(path.join(tmpdir(), "trace-test-"));
     const socket = net.createServer();
@@ -59,7 +59,7 @@ test(
       return result;
     }
     async function finished(id) {
-      for (let i = 0; i < 200; i++) {
+      for (let i = 0; i < 400; i++) {
         const s = await api(`/sessions/${id}`);
         if (!["running", "cancelling"].includes(s.status)) return s;
         await delay(150);
@@ -122,6 +122,34 @@ test(
       });
       assert.equal(imported.cases.length, 10);
       assert.equal(imported.cases.at(-1).value, "Everyday essentials");
+      const journeyManifest = { schema: "trace/test/v2", name: "Multi-step fixture", policy: "read-only", checks: [
+        {kind: "journey", name: "Browse the story", acceptance: "Story heading appears after navigation.", actions: [
+          {action: "navigate", url: "/demo/about"},
+          {action: "assertUrl", value: "/demo/about"},
+          {action: "assertText", target: {role: "heading", name: "Our story"}, value: "Our story"},
+          {action: "click", target: {role: "link", name: "Back to the shop"}},
+          {action: "assertUrl", value: "/demo"},
+        ]},
+        {kind: "journey", name: "Failed assertion stops steps", acceptance: "Missing copy produces a failure.", actions: [
+          {action: "navigate", url: "/demo/about"},
+          {action: "assertText", target: {selector: "h1"}, value: "Missing heading"},
+          {action: "click", target: {role: "link", name: "Back to the shop"}},
+        ]},
+        {kind: "journey", name: "Fresh case remains isolated", acceptance: "Each journey begins at the environment.", actions: [
+          {action: "assertUrl", value: "/demo"},
+        ]}
+      ]};
+      const multi = await api("/import", "POST", {yaml: YAML.stringify(journeyManifest), environmentId: "demo"});
+      await api(`/sessions/${multi.id}/run`, "POST");
+      const multiRun = await finished(multi.id);
+      assert.deepEqual(multiRun.cases.map(c => c.status), ["passed", "issues_found", "passed"]);
+      assert.equal(multiRun.cases[0].result.stepResults.length, 5);
+      assert.equal(multiRun.cases[1].result.stepResults.at(-1).status, "not_run");
+      assert.equal(multiRun.findings[0].reproduction, "reproduced");
+      assert(multiRun.cases[0].evidence.some(e => e.kind === "trace"));
+      const multiYaml = await fetch(`${base}/api/sessions/${multi.id}/export?format=yaml`).then(r => r.text());
+      const roundTrip = await api("/import", "POST", {yaml: multiYaml, environmentId: "demo"});
+      assert.deepEqual(roundTrip.cases[0].actions, journeyManifest.checks[0].actions);
       const invalid = await fetch(`${base}/api/import`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

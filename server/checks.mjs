@@ -1,3 +1,4 @@
+import { journey } from "./journey.mjs";
 import { id } from "./store.mjs";
 import { safeNavigation } from "./policy.mjs";
 
@@ -101,6 +102,7 @@ export async function check(page, spec, context) {
     details,
   });
   switch (spec.kind) {
+    case "journey": return journey(page, spec, context);
     case "http":
       return result(
         context.status > 0 && context.status < 400,

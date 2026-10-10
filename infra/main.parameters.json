@@ -32,6 +32,9 @@
     "entraClientId": {
       "value": "35fbc343-1808-4210-a2e9-5c91e7cb81e3"
     },
+    "entraEnabled": {
+      "value": false
+    },
     "entraTenantId": {
       "value": "91639769-c9fd-449b-a5af-9e02bd716bfb"
     },

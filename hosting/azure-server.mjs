@@ -23,7 +23,7 @@ export function createAzureApp(env = process.env) {
       res.status(503).json({ status: "unavailable" });
     }
   });
-  app.use(express.raw({ type: () => true, limit: "64kb" }));
+  app.use(express.raw({ type: () => true, limit: "512kb" }));
   app.use(async (req, res, next) => {
     if (!/^\/(api(?:\/|$)|artifacts(?:\/|$)|demo(?:\/|$))/.test(req.path))
       return next();

@@ -121,7 +121,7 @@ async function execute(session, control) {
   const deadline = setTimeout(() => {
     control.cancelled = true;
     browser?.close().catch(() => {});
-  }, 180000);
+  }, Math.min(900000, Math.max(180000, session.cases.length * 15000)));
   try {
     proxy = await guardedProxy(isDemo(new URL(session.url)));
     browser = await chromium.launch({
@@ -146,7 +146,15 @@ async function execute(session, control) {
       save();
       const start = Date.now();
       event(session, "Verifier", `Checking: ${spec.name}`, { caseId: spec.id });
+      let journeyContext;
+      const sharedPage = page, sharedInputs = inputs;
       try {
+        if (spec.kind === "journey") {
+          journeyContext = await isolatedContext(browser, session.url);
+          await journeyContext.tracing.start({ screenshots: true, snapshots: true });
+          const fresh = await open(journeyContext, session.url);
+          page = fresh.page; inputs = fresh.inputs;
+        }
         // Mobile checks temporarily change this page's viewport; reset for each case.
         await page.setViewportSize({ width: 1440, height: 960 });
         const result = await check(page, spec, inputs);
@@ -246,6 +254,14 @@ async function execute(session, control) {
           caseId: spec.id,
           status: "blocked",
         });
+      }
+      finally {
+        if (journeyContext) {
+          const filename = `${session.runId}-${spec.id}.zip`;
+          await journeyContext.tracing.stop({path:path.join(artifacts,filename)}).then(() => spec.evidence.push({id:id(),at:now(),kind:"trace",url:`/artifacts/${filename}`,caption:`${spec.name} — journey trace`})).catch(() => {});
+          await journeyContext.close().catch(() => {});
+          page = sharedPage; inputs = sharedInputs;
+        }
       }
       spec.durationMs = Date.now() - start;
       save();
