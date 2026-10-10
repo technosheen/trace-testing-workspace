@@ -1,0 +1,21 @@
+schema: trace/test/v2
+name: Demo — multi-step navigation
+policy: read-only
+checks:
+  - kind: journey
+    name: Open story and return to shop
+    acceptance: Story heading is visible and the visitor returns to the shop.
+    actions:
+      - action: navigate
+        url: /demo/about
+      - action: assertText
+        target:
+          role: heading
+          name: Our story
+        value: Our story
+      - action: click
+        target:
+          role: link
+          name: Back to the shop
+      - action: assertUrl
+        value: /demo

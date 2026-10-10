@@ -1,0 +1,24 @@
+# Draft example based on CAM-001. Not executed against Cambridge.
+# Select the Cambridge homepage environment when importing.
+schema: trace/test/v2
+name: Cambridge — Broker-Dealer page journey
+policy: read-only
+checks:
+  - kind: journey
+    name: Broker-Dealer page presents retention information
+    acceptance: The audience page opens and its main content contains retention information.
+    preconditions:
+      - Public signed-out browser; no contact submissions.
+    actions:
+      - action: navigate
+        url: /whats-your-journey/broker-dealer/
+      - action: assertVisible
+        target:
+          selector: main
+      - action: scrollIntoView
+        target:
+          selector: main
+      - action: assertText
+        target:
+          selector: main
+        value: retention

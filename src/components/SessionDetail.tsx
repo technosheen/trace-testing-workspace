@@ -514,7 +514,11 @@ export function CaseDetail({
           </>
         ) : item.evidence.length ? (
           item.evidence.map((e) => (
-            <EvidenceImage key={e.id} url={e.url} caption={e.caption} />
+            e.kind === "trace" ? (
+              <a key={e.id} className="btn" href={e.url} download>
+                Download journey trace
+              </a>
+            ) : <EvidenceImage key={e.id} url={e.url} caption={e.caption} />
           ))
         ) : (
           <Empty
