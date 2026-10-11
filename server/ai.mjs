@@ -177,6 +177,7 @@ export function createAiPlanner({
   const config = aiConfig(env);
   let client,
     generating = false;
+  let lastModelAttemptAt = db.aiUsage?.lastAttemptAt ?? null;
   function usage() {
     const day = new Date(clock()).toISOString().slice(0, 10);
     if (!db.aiUsage || db.aiUsage.day !== day)
@@ -257,6 +258,7 @@ export function createAiPlanner({
     generating = true;
     used.attempts++;
     used.lastAttemptAt = clock();
+    lastModelAttemptAt = used.lastAttemptAt;
     save();
     try {
       getClient();
@@ -336,15 +338,18 @@ export function createAiPlanner({
   async function decide(input, signal) {
     if (!config) throw Object.assign(agentError("ai_unavailable"), {status:503});
     if (generating) throw Object.assign(agentError("ai_busy"), {status:409});
-    const used = usage();
+    let used = usage();
     if (used.attempts >= 60) throw Object.assign(agentError("ai_quota"), {status:429});
     generating = true;
     try {
       // Azure can enforce short-window rate limits even with spare minute quota.
       // Wait before reserving the request so cancellation does not spend it.
-      if (used.lastAttemptAt !== null) await pause(Math.max(0, decisionIntervalMs - (clock() - used.lastAttemptAt)), undefined, {signal});
+      const lastAttemptAt = Math.max(lastModelAttemptAt ?? 0, used.lastAttemptAt ?? 0);
+      if (lastAttemptAt) await pause(Math.max(0, decisionIntervalMs - (clock() - lastAttemptAt)), undefined, {signal});
       if (signal.aborted) throw agentError("cancelled");
+      used = usage();
       used.attempts++; used.lastAttemptAt = clock(); save();
+      lastModelAttemptAt = used.lastAttemptAt;
       const response = await getClient().responses.create({
         model: config.model, store: false, max_output_tokens: 500,
         instructions: agentInstructions,

@@ -89,3 +89,15 @@ test('agent decisions are paced and cancellation does not spend a queued request
  await assert.rejects(queued,error=>error.code==='cancelled');
  assert.equal(calls.length,2);assert.equal(db.aiUsage.attempts,2);
 });
+
+test('paced requests stay counted and spaced when daily usage resets during the wait',async()=>{
+ let current=Date.parse('2026-10-11T23:59:59.990Z');const calls=[];const db={};
+ const model=createAiPlanner({env:{AZURE_OPENAI_ENDPOINT:'https://example.cognitiveservices.azure.com/',AZURE_OPENAI_DEPLOYMENT:'trace-drafting'},db,save(){},clock:()=>current,decisionIntervalMs:80,client:{responses:{async create(){calls.push(Date.now());return {status:'completed',output_text:JSON.stringify(decision('finish'))};}}}});
+ await model.decide({},new AbortController().signal);
+ const pending=model.decide({},new AbortController().signal);
+ current=Date.parse('2026-10-12T00:00:00.010Z');model.status();await pending;
+ assert.equal(db.aiUsage.attempts,1,'the queued request belongs to the new day');
+ await model.decide({},new AbortController().signal);
+ assert.ok(calls[2]-calls[1]>=70);assert.equal(db.aiUsage.attempts,2);
+ current=Date.parse('2026-10-13T00:00:00.000Z');model.status();
+});
