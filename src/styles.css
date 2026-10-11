@@ -10,11 +10,11 @@
   background: #fff;
   font-synthesis: none;
   font-size: 15px;
-  --purple: #7156df;
-  --muted: #687387;
-  --border: #e5e8ef;
-  --rail: #f4f6f9;
-  --light-purple: #f3f0ff;
+  --purple: #60783c;
+  --muted: #747d6d;
+  --border: #e4e7dc;
+  --rail: #f5f6ef;
+  --light-purple: #eff3e5;
 }
 * {
   box-sizing: border-box;
@@ -2350,3 +2350,6 @@ label.ai-knowledge-option {
   color: #b42338;
   font-size: 13px;
 }
+
+.filter-toolbar { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:22px; align-items:center; }
+.filter-toolbar select { padding:10px 12px; border:1px solid var(--border); border-radius:7px; background:white; max-width:100%; }

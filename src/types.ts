@@ -7,7 +7,9 @@ export type Evidence = {
   url: string;
   caption: string;
 };
+export type JourneyAction = { action: string; url?: string; value?: string; target?: { selector?: string; role?: string; name?: string } };
 export type TestCase = {
+  actions?: JourneyAction[];
   id: string;
   kind: string;
   name: string;
@@ -18,7 +20,7 @@ export type TestCase = {
   status: Status;
   controls: { name: string; status: string }[];
   evidence: Evidence[];
-  result: { status: Status; summary: string; details: string[] } | null;
+  result: { status: Status; summary: string; details: string[]; stepResults?: {index:number;action:string;status:Status;durationMs?:number;summary:string}[] } | null;
   durationMs?: number;
 };
 export type Finding = {
@@ -103,6 +105,9 @@ export type Schedule = {
   nextRunAt: string;
   lastRunId?: string;
   lastError?: string;
+  sourceSessionId?: string;
+  sourceName?: string;
+  checks?: TestCase[];
 };
 export type Knowledge = {
   id: string;

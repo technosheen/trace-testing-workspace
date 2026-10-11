@@ -38,8 +38,12 @@ export function SessionDetail({
   onFinding,
   onAddCase,
   onRemoveCase,
+  onEdit, onDuplicate, initialRun,
 }: {
   session: Session;
+  initialRun?: string;
+  onEdit: () => void;
+  onDuplicate: () => void;
   onBack: () => void;
   onRun: () => void;
   onCancel: () => void;
@@ -51,7 +55,7 @@ export function SessionDetail({
   const [tab, setTab] = useState("cases");
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
-  const [run, setRun] = useState("latest");
+  const [run, setRun] = useState(initialRun || "latest");
   const archived = session.history.find((r) => r.runId === run);
   const cases = archived?.cases || session.cases;
   const findings = archived?.findings || session.findings;
@@ -101,6 +105,8 @@ export function SessionDetail({
           </p>
         </div>
         <div className="heading-actions">
+          {session.status === "ready" && <button className="btn" onClick={onEdit}>Edit tests</button>}
+          <button className="btn" disabled={active} onClick={onDuplicate}><Copy size={16} /> Duplicate</button>
           <a
             className="btn"
             href={`/api/sessions/${session.id}/export?format=yaml`}
@@ -482,6 +488,7 @@ export function CaseDetail({
                 ))}
               </ol>
             </section>
+            {item.result?.stepResults && <section className="inspector-section"><h3>Step results</h3>{item.result.stepResults.map((step) => <div className="control-row" key={step.index}><Status value={step.status} /><div><strong>{step.index + 1}. {step.action}</strong><p>{step.summary}</p>{step.durationMs !== undefined && <small>{step.durationMs} ms</small>}</div></div>)}</section>}
             {item.result?.details.length ? (
               <section className="inspector-section">
                 <h3>Observed details</h3>

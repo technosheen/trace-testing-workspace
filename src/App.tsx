@@ -22,10 +22,14 @@ import {
   Schedules,
   SettingsPage,
 } from "./components/WorkspacePages";
+import { Dashboard } from "./components/Dashboard";
+import { TestEditor } from "./components/TestEditor";
+import { WorkspaceReports } from "./components/WorkspaceReports";
 import { SignIn } from "./components/SignIn";
 import { Dialog, Toast } from "./components/ui";
 
 type Modal =
+  | { type: "editor"; session: Session }
   | { type: "new" | "env" | "case" | "import"; env?: Environment }
   | { type: "case-detail"; item: TestCase; archived: boolean }
   | { type: "finding-detail"; item: Finding; archived: boolean }
@@ -36,7 +40,7 @@ type Modal =
       action: () => Promise<unknown>;
     };
 function readRoute() {
-  return location.hash.replace(/^#\/?/, "") || "sessions";
+  return location.hash.replace(/^#\/?/, "") || "dashboard";
 }
 function WorkspaceApp({ onSignOut }: { onSignOut?: () => void }) {
   const { data, error, refresh } = useWorkspace();
@@ -123,11 +127,18 @@ function WorkspaceApp({ onSignOut }: { onSignOut?: () => void }) {
         </div>
       ) : (
         <>
+          {page === "dashboard" && <Dashboard data={data} go={go} onNew={() => setModal({type:"new"})} onImport={() => setModal({type:"import"})} />}
+          {(page === "runs" || page === "findings") && <WorkspaceReports data={data} kind={page} onOpen={(id, runId) => go(`sessions/${id}${runId ? `/${runId}` : ""}`)} />}
+          {modal?.type === "editor" && <TestEditor session={modal.session} busy={busy} onClose={() => setModal(null)} onSave={(yaml) => void act(() => request(`/sessions/${modal.session.id}/plan`, "PUT", {yaml}), "Test plan saved.")} />}
           {page === "sessions" &&
             (route.split("/")[1] ? (
               selected ? (
                 <SessionDetail
+                  key={`${selected.id}-${route.split("/")[2] || "latest"}`}
+                  initialRun={route.split("/")[2]}
                   session={selected}
+                  onEdit={() => setModal({type:"editor",session:selected})}
+                  onDuplicate={() => void (async () => { const result = await act(() => request<Session>(`/sessions/${selected.id}/duplicate`, "POST", {}), "Editable copy created."); if(result) go(`sessions/${(result as Session).id}`); })()}
                   onBack={() => go("sessions")}
                   onRun={() =>
                     void act(
@@ -227,6 +238,8 @@ function WorkspaceApp({ onSignOut }: { onSignOut?: () => void }) {
           {page === "schedules" && (
             <Schedules
               items={data.schedules}
+              sessions={data.sessions}
+              onRun={(s) => void act(() => request(`/schedules/${s.id}/run`, "POST"), "Scheduled suite started.")}
               environments={data.environments}
               onAdd={(body) =>
                 void act(

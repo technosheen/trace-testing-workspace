@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import {
+  LayoutDashboard, Activity, Bug,
   PanelsTopLeft,
   CalendarDays,
   BookOpen,
@@ -15,6 +16,9 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 export const navigation = [
+  { id: "dashboard", name: "Dashboard", icon: LayoutDashboard },
+  { id: "runs", name: "Runs", icon: Activity },
+  { id: "findings", name: "Findings", icon: Bug },
   { id: "sessions", name: "Sessions", icon: PanelsTopLeft },
   { id: "schedules", name: "Schedules", icon: CalendarDays },
   { id: "library", name: "Test library", icon: FileText },
@@ -71,8 +75,8 @@ export function Shell({
       >
         <a
           className="brand"
-          href="#/sessions"
-          onClick={() => navigate("sessions")}
+          href="#/dashboard"
+          onClick={() => navigate("dashboard")}
         >
           <Copy size={31} strokeWidth={1.7} />
           <span>Trace</span>

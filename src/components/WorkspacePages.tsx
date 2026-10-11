@@ -250,6 +250,7 @@ export function KnowledgeBase({
   );
 }
 export function Schedules({
+  sessions, onRun,
   items,
   environments,
   onAdd,
@@ -257,6 +258,8 @@ export function Schedules({
   onDelete,
   onOpen,
 }: {
+  sessions: Session[];
+  onRun: (s: Schedule) => void;
   items: Schedule[];
   environments: Environment[];
   onAdd: (body: unknown) => void;
@@ -269,6 +272,7 @@ export function Schedules({
   const [environmentId, setEnvironment] = useState(environments[0]?.id || "");
   const [mode, setMode] = useState("smoke");
   const [hours, setHours] = useState(24);
+  const [sourceSessionId, setSource] = useState("");
   return (
     <>
       <PageHeading
@@ -310,6 +314,7 @@ export function Schedules({
                   {environments.find((e) => e.id === s.environmentId)?.name} ·
                   Every {s.intervalHours} hours
                 </p>
+                {s.sourceName && <p>{s.sourceName} · {s.checks?.length || 0} saved tests</p>}
                 <small>
                   {s.enabled
                     ? `Next run: ${new Date(s.nextRunAt).toLocaleString()}`
@@ -328,6 +333,7 @@ export function Schedules({
                   </button>
                 )}
               </div>
+              <button className="btn compact" onClick={() => onRun(s)} disabled={sessions.some(x => x.id === s.lastRunId && ["running", "cancelling"].includes(x.status))}><Play size={14} /> Run now</button>
               <button
                 className={`btn compact ${s.enabled ? "" : "muted"}`}
                 onClick={() => onToggle(s)}
@@ -351,7 +357,7 @@ export function Schedules({
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              onAdd({ name, environmentId, mode, intervalHours: hours });
+              onAdd({ name, environmentId, mode, intervalHours: hours, ...(sourceSessionId ? {sourceSessionId} : {}) });
               setShow(false);
               setName("");
             }}
@@ -380,6 +386,7 @@ export function Schedules({
                   ))}
                 </select>
               </label>
+              <label>Test suite<select value={sourceSessionId} onChange={e => setSource(e.target.value)}><option value="">Standard checks</option>{sessions.filter(s => !["running", "cancelling"].includes(s.status)).map(s => <option key={s.id} value={s.id}>{s.name} ({s.cases.length} tests)</option>)}</select><small>A schedule saves a copy of these tests. Later edits to the original do not change it.</small></label>
               <div className="form-row">
                 <label>
                   Check mode
@@ -567,7 +574,7 @@ export function SettingsPage({
           <dt>Concurrent runs</dt>
           <dd>{data.service.activeRuns} active · up to 2</dd>
           <dt>Run limit</dt>
-          <dd>3 minutes per run · up to 25 cases</dd>
+          <dd>3–15 minutes per run · up to 200 tests</dd>
           <dt>AI generation</dt>
           <dd>
             {data.service.ai?.configured
@@ -586,7 +593,7 @@ export function SettingsPage({
         <p>
           Page responses, titles, main landmarks, headings, image alternatives,
           form labels, uncaught JavaScript errors, up to five internal links,
-          mobile overflow, and your custom text or CSS visibility assertions.
+          mobile overflow, custom text or CSS visibility assertions, and multi-step browser journeys.
         </p>
         <p>
           Failures are checked again in a fresh context. Screenshots and browser

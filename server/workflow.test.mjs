@@ -122,6 +122,21 @@ test(
       });
       assert.equal(imported.cases.length, 10);
       assert.equal(imported.cases.at(-1).value, "Everyday essentials");
+      const editable = await api(`/sessions/${session.id}/duplicate`, "POST", {});
+      assert.equal(editable.status, "ready");
+      assert.equal(editable.cases.length, session.cases.length);
+      assert.ok(editable.cases.every(c=>c.status === "not_run" && c.result === null));
+      assert.equal((await fetch(`${base}/api/sessions/${session.id}/plan`, {method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({yaml})})).status,400);
+      const edited = await api(`/sessions/${editable.id}/plan`, "PUT", {yaml:YAML.stringify({schema:"trace/test/v1",name:"Edited suite",checks:[{kind:"text",name:"Headline",acceptance:"Headline is present",value:"Everyday essentials"}]})});
+      assert.equal(edited.name,"Edited suite");
+      assert.equal(edited.cases.length,1);
+      const suiteSchedule=await api("/schedules","POST",{name:"Suite schedule",environmentId:"demo",mode:"smoke",intervalHours:24,sourceSessionId:editable.id});
+      await api(`/sessions/${editable.id}/cases`,"POST",{kind:"text",name:"Another check",value:"Fieldwork"});
+      const suiteRun=await api(`/schedules/${suiteSchedule.id}/run`,"POST");
+      assert.equal(suiteRun.cases.length,1,"schedule preserves its original suite snapshot");
+      const scheduledResult=await finished(suiteRun.id);
+      assert.equal(scheduledResult.cases[0].status,"passed");
+      await api(`/schedules/${suiteSchedule.id}`,"DELETE");
       const journeyManifest = { schema: "trace/test/v2", name: "Multi-step fixture", policy: "read-only", checks: [
         {kind: "journey", name: "Browse the story", acceptance: "Story heading appears after navigation.", actions: [
           {action: "navigate", url: "/demo/about"},

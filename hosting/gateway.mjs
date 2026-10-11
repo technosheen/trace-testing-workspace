@@ -192,7 +192,7 @@ export function createGateway(
       if (raw.startsWith("/api/auth/"))
         return json({ error: "Unknown route." }, 404);
       if (!authorized) return json({ error: "Please sign in." }, 401);
-      if (!["GET", "HEAD", "POST", "PATCH", "DELETE"].includes(request.method))
+      if (!["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"].includes(request.method))
         return json({ error: "Method not allowed." }, 405);
       url.searchParams.delete("__trace_path");
       const target = new URL(
@@ -208,7 +208,7 @@ export function createGateway(
       let body;
       if (mutation) {
         body = await request.text();
-        const limit = raw === "/api/import" && request.method === "POST"
+        const limit = (raw === "/api/import" && request.method === "POST") || (/^\/api\/sessions\/[^/]+\/plan$/.test(raw) && request.method === "PUT")
           ? 512 * 1024 : 65536;
         if (Buffer.byteLength(body) > limit)
           return json({ error: "Request too large." }, 413);

@@ -205,6 +205,34 @@ app.patch("/api/sessions/:id", (req, res) => {
   save();
   res.json(session);
 });
+function executableChecks(cases) {
+  return cases.map(c => ({kind:c.kind,name:c.name,acceptance:c.acceptance,
+    ...(c.value ? {value:c.value} : {}),
+    ...(c.actions ? {actions:c.actions,preconditions:c.preconditions} : {})}));
+}
+function plannedCases(checks) {
+  return checks.map(c => ({...c,id:id(),preconditions:c.preconditions || ["Target page is reachable."],
+    steps:c.actions ? c.actions.map((a,i) => `${i+1}. ${a.action}${a.url ? ": " + a.url : ""}${a.target ? ": " + (a.target.selector || a.target.role + " “" + a.target.name + "”") : ""}${a.value ? ": " + a.value : ""}`) : ["Open the target.",c.acceptance],
+    status:"not_run",controls:[],evidence:[],result:null}));
+}
+app.put("/api/sessions/:id/plan", (req,res) => {
+  const session = required(db.sessions,req.params.id);
+  if (session.status !== "ready") throw new Error("Duplicate a completed session before changing its test plan.");
+  const body = z.object({yaml:z.string().max(500000)}).parse(req.body);
+  const manifest = manifestSchema.parse(YAML.parse(body.yaml,{maxAliasCount:0}));
+  session.name = manifest.name;
+  session.cases = plannedCases(manifest.checks);
+  event(session,"Planner","Test plan updated. Results will be collected on the next run.");
+  res.json(session);
+});
+app.post("/api/sessions/:id/duplicate", (req,res) => {
+  const source = required(db.sessions,req.params.id);
+  if (isRunning(source)) throw new Error("Wait for the active run to finish before duplicating.");
+  const input = z.object({environmentId:text.optional(),name:text.max(120).optional()}).parse(req.body || {});
+  const copy = newSession({name:input.name || (source.name.slice(0,113)+" · copy"),environmentId:input.environmentId || source.environmentId,mode:source.mode,brief:source.brief,expectedText:""});
+  copy.cases = plannedCases(executableChecks(source.cases));
+  save();res.status(201).json(copy);
+});
 app.delete("/api/sessions/:id", (req, res) => {
   const session = required(db.sessions, req.params.id);
   if (isRunning(session)) throw new Error("Stop the active run first.");
@@ -226,8 +254,8 @@ app.post("/api/sessions/:id/cases", (req, res) => {
     throw new Error(
       "Cases can be added to a planned session. Create a new session to change a completed plan.",
     );
-  if (session.cases.length >= 25)
-    throw new Error("A session can contain up to 25 checks.");
+  if (session.cases.length >= 200)
+    throw new Error("A session can contain up to 200 checks.");
   const input = z
     .object({
       name: text.max(120),
@@ -294,7 +322,7 @@ app.get("/api/sessions/:id/export", (req, res) => {
   if (format === "yaml") {
     // Trace's executable manifest, not a claim of Momentic YAML compatibility.
     const manifest = {
-      schema: session.cases.some(c => c.kind === "journey") ? "trace/test/v2" : "trace/test/v1",
+      schema: session.cases.length > 25 || session.cases.some(c => c.kind === "journey") ? "trace/test/v2" : "trace/test/v1",
       name: session.name,
       url: session.url,
       policy: "read-only",
@@ -366,10 +394,14 @@ app.post("/api/schedules", (req, res) => {
       environmentId: text,
       mode: z.enum(["smoke", "accessibility", "navigation"]),
       intervalHours: z.number().int().min(1).max(168),
+      sourceSessionId: text.optional(),
     })
     .parse(req.body);
   required(db.environments, input.environmentId);
+  const source = input.sourceSessionId ? required(db.sessions,input.sourceSessionId) : null;
+  if (source && isRunning(source)) throw new Error("Wait for the source run to finish.");
   const item = {
+    ...(source ? {checks:executableChecks(source.cases),sourceName:source.name} : {}),
     ...input,
     id: id(),
     enabled: true,
@@ -392,6 +424,28 @@ app.patch("/api/schedules/:id", (req, res) => {
   save();
   res.json(schedule);
 });
+const startingSchedules = new Set();
+async function executeSchedule(schedule) {
+  if(startingSchedules.has(schedule.id)) throw new Error("This schedule already has an active run.");
+  startingSchedules.add(schedule.id);
+  try {
+  const previous = db.sessions.find(s => s.id === schedule.lastRunId);
+  if (previous && isRunning(previous)) throw new Error("This schedule already has an active run.");
+  const session = newSession({name:schedule.name,environmentId:schedule.environmentId,mode:schedule.mode,brief:schedule.checks ? `Scheduled suite: ${schedule.sourceName}` : "Scheduled browser audit.",expectedText:""});
+  if (schedule.checks) session.cases = plannedCases(schedule.checks);
+  save();
+  try {
+    await runSession(session);
+    schedule.lastRunId = session.id;
+    schedule.lastError = null;
+  } catch(error) {
+    schedule.lastError = error.message;
+    save();throw error;
+  }
+  save();return session;
+  } finally { startingSchedules.delete(schedule.id); }
+}
+app.post("/api/schedules/:id/run", async (req,res) => res.json(await executeSchedule(required(db.schedules,req.params.id))));
 app.delete("/api/schedules/:id", (req, res) => {
   required(db.schedules, req.params.id);
   db.schedules = db.schedules.filter((s) => s.id !== req.params.id);
@@ -457,16 +511,7 @@ const timer = setInterval(async () => {
       const previous = db.sessions.find((s) => s.id === schedule.lastRunId);
       if (previous && isRunning(previous)) continue;
       try {
-        const session = newSession({
-          name: schedule.name,
-          environmentId: schedule.environmentId,
-          mode: schedule.mode,
-          brief: "Scheduled browser audit.",
-          expectedText: "",
-        });
-        schedule.lastRunId = session.id;
-        await runSession(session);
-        schedule.lastError = null;
+        await executeSchedule(schedule);
       } catch (error) {
         schedule.lastError = error.message;
       }

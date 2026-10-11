@@ -319,3 +319,13 @@ test('large YAML imports pass while oversized imports and other writes stay boun
   assert.equal((await gateway(post('/api/sessions',65537))).status,413);
   assert.equal(calls,1);
 });
+
+test("plan editing accepts PUT and larger validated YAML bodies without raising other limits", async () => {
+ let calls=0;
+ const gateway=createGateway(env,async()=>{calls++;return Response.json({ok:true});});
+ const send=(path,size)=>gateway(req(path,{method:"PUT",headers:{cookie:cookie(),origin,"Content-Type":"application/json"},body:JSON.stringify({yaml:"a".repeat(size)})}));
+ assert.equal((await send("/api/sessions/fixture/plan",100000)).status,200);
+ assert.equal((await send("/api/sessions/fixture/plan",525000)).status,413);
+ assert.equal((await send("/api/knowledge",100000)).status,413);
+ assert.equal(calls,1);
+});
