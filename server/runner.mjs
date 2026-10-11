@@ -6,6 +6,7 @@ import { validateTarget, isDemo, safeNavigation } from "./policy.mjs";
 import { guardedProxy } from "./proxy.mjs";
 
 export const active = new Map();
+export const browserCount = () => [...active.values()].filter(run => run.slots !== 0).length;
 const artifacts = path.join(dataDir, "artifacts");
 export const isRunning = (session) => active.has(session.id);
 export function cancel(session) {
@@ -69,14 +70,14 @@ export async function screenshot(page, prefix) {
 export async function runSession(session) {
   if (active.has(session.id))
     throw new Error("This session is already running.");
-  if (active.size >= 2)
+  if (browserCount() >= 2)
     throw new Error(
       "Two browser runs are already active. Wait for one to finish.",
     );
   if (!session.cases.length) throw new Error("Add at least one test case.");
   await validateTarget(session.url);
   // Recheck after asynchronous target validation to avoid duplicate concurrent starts.
-  if (active.has(session.id) || active.size >= 2)
+  if (active.has(session.id) || browserCount() >= 2)
     throw new Error(
       "A run started while validating the target. Try again after it finishes.",
     );

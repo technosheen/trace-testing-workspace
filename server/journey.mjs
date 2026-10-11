@@ -3,7 +3,7 @@ function locator(page,target){return target.selector?page.locator(target.selecto
 export async function journey(page,spec,inputs){
  const steps=[];let status='passed';
  for(let i=0;i<spec.actions.length;i++){
-  const a=spec.actions[i];const start=Date.now();
+  const a=spec.actions[i];const start=Date.now();let failureKind='tool_error';
   try{
    const element=a.target?locator(page,a.target):null;
    if(a.action==='navigate'){
@@ -21,15 +21,14 @@ export async function journey(page,spec,inputs){
     await element.waitFor({state:'visible'});
     const deadline=Date.now()+10000;let found=false;
     do{if((await element.innerText()).includes(a.value)){found=true;break;}await page.waitForTimeout(100);}while(Date.now()<deadline);
-    if(!found){status='issues_found';throw Error('Expected visible text was not found.');}
+    if(!found){failureKind='assertion_mismatch';status='issues_found';throw Error('Expected visible text was not found.');}
    }else if(a.action==='assertUrl'){
     await page.waitForURL(new URL(a.value,inputs.url).href,{timeout:10000});
    }
    steps.push({index:i+1,action:a.action,status:'passed',durationMs:Date.now()-start,summary:'Completed.'});
   }catch(error){
-   if(a.action.startsWith('assert')&&!/strict mode|closed|cancel/i.test(error.message))status='issues_found';
-   else if(status==='passed')status='blocked';
-   steps.push({index:i+1,action:a.action,status,durationMs:Date.now()-start,summary:error.message.split('\n')[0]});
+   status=failureKind==='assertion_mismatch'?'issues_found':'blocked';
+   steps.push({index:i+1,action:a.action,status,failureKind,durationMs:Date.now()-start,summary:error.message.split('\n')[0]});
    for(let j=i+1;j<spec.actions.length;j++)steps.push({index:j+1,action:spec.actions[j].action,status:'not_run',summary:'Skipped after the preceding step failed.'});
    break;
   }

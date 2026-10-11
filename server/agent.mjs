@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { chromium } from 'playwright';
-import { active, isolatedContext, open, screenshot } from './runner.mjs';
+import { active, browserCount, isolatedContext, open, screenshot } from './runner.mjs';
 import { guardedProxy } from './proxy.mjs';
 import { validateTarget, safeNavigation, isDemo } from './policy.mjs';
 import { db, save, event, id, now, dataDir } from './store.mjs';
@@ -84,9 +84,9 @@ export async function explore(page, {brief,knowledge=[],decide,signal,maxDecisio
 export async function startAgent(session, model) {
   if(!model.status().configured)throw Object.assign(Error('Connect Azure AI before starting an agent.'),{status:503});
   if(!session.agent || session.cases.length)throw Error('Create a new agent session to explore. Existing tests are preserved.');
-  if(active.has(session.id)||active.size>=2)throw Error('Browser capacity is busy. Wait for an active run to finish.');
+  if(active.has(session.id)||browserCount()>=2)throw Error('Browser capacity is busy. Wait for an active run to finish.');
   await validateTarget(session.url);
-  if(active.has(session.id)||active.size>=2)throw Error('Browser capacity is busy.');
+  if(active.has(session.id)||browserCount()>=2)throw Error('Browser capacity is busy.');
   const controller=new AbortController(); const control={cancelled:false,browser:null,abort:()=>controller.abort()};
   active.set(session.id,control);
   session.status='running';session.startedAt=now();session.finishedAt=null;session.agent={...session.agent,state:'running',steps:[],evidence:[],decisions:0,summary:'Exploring the live page.'};

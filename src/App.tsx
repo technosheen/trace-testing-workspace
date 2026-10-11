@@ -151,7 +151,7 @@ function WorkspaceApp({ onSignOut }: { onSignOut?: () => void }) {
                   onBack={() => go("sessions")}
                   onRun={() =>
                     void act(
-                      () => request(`/sessions/${selected.id}/${selected.agent && !selected.cases.length ? "agent/run" : "run"}`, "POST"),
+                      () => request(`/sessions/${selected.id}/${selected.team?.state === "planned" ? "team/run" : selected.team && ["blocked","interrupted","cancelled"].includes(selected.team.state) ? "team/retry" : selected.agent && !selected.cases.length ? "agent/run" : "run"}`, "POST"),
                       "Browser run started.",
                     )
                   }

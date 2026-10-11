@@ -60,7 +60,9 @@ export type Run = {
   cases: TestCase[];
   findings: Finding[];
 };
+export type TeamTask = {id:string;parentId:string;goalId:string;role:string;name:string;brief:string;state:string;summary?:string;decisions?:number;evidence?:Evidence[];steps?:{index:number;summary:string;status:string}[]};
 export type Session = {
+  team?: {state:string;summary:string;goals?:{id:string;name:string;brief:string}[];tasks:TeamTask[];events:{id:string;at:string;message:string}[];finishedAt?:string};
   agent?: {state:string; summary:string; decisions:number; trace?:string; steps:{index:number;action:string;status:string;summary:string}[]; evidence:Evidence[]};
   archivedAt?: string;
   generation?: {

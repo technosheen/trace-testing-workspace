@@ -8,14 +8,18 @@ import { normalizeSchedule, nextScheduleAt } from "./scheduling.mjs";
 import { db, save, id, now, event, dataDir } from "./store.mjs";
 import { planCases, checkKinds } from "./checks.mjs";
 import { validateTarget } from "./policy.mjs";
-import { runSession, cancel, isRunning, active } from "./runner.mjs";
+import { runSession, cancel, isRunning, active, browserCount } from "./runner.mjs";
 import { demo, product } from "./demo.mjs";
 import { createAiPlanner } from "./ai.mjs";
+import {createTeamRuntime} from "./team-runtime.mjs";
+import {buildExplorationGoals} from "./explorer.mjs";
 import { startAgent } from "./agent.mjs";
 
 import { hosted, authenticated, verifyPassword } from "./auth.mjs";
 const app = express();
 const ai = createAiPlanner({ db, save });
+const teams=createTeamRuntime(ai);
+teams.recover(db.sessions);
 const port = Number(process.env.PORT || 4310);
 const hosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
 const origins = new Set([
@@ -53,7 +57,7 @@ const sessionSchema = z.object({
   mode: z.enum(["smoke", "accessibility", "navigation"]).default("smoke"),
   brief: z.string().max(3000).default(""),
   expectedText: z.string().max(200).default(""),
-  generation: z.enum(["standard", "ai", "agent"]).default("standard"),
+  generation: z.enum(["standard", "ai", "agent", "team"]).default("standard"),
   includeKnowledge: z.boolean().default(false),
 });
 function required(items, value) {
@@ -115,13 +119,13 @@ app.get("/api/workspace", (req, res) =>
     service: {
       mode: hosted ? "hosted" : "local",
       engine: "Playwright browser checks",
-      activeRuns: active.size,
+      activeRuns: browserCount(),
       ai: ai.status(),
     },
   }),
 );
 app.get("/api/health", (req, res) =>
-  res.json({ status: "ok", activeRuns: active.size }),
+  res.json({ status: "ok", activeRuns: browserCount() }),
 );
 app.get("/api/auth/session", (req, res) =>
   res.json({ authenticated: true, hosted }),
@@ -192,17 +196,21 @@ app.post("/api/sessions", async (req, res) => {
     input.generation === "ai"
       ? await ai.generate(input, env, db.knowledge)
       : undefined;
-  if (input.generation === "agent" && (!input.brief.trim() || !ai.status().configured))
+  if (["agent","team"].includes(input.generation) && (!input.brief.trim() || !ai.status().configured))
     throw new Error("Describe the testing goal and connect Azure AI before creating an agent session.");
-  if (input.generation === "agent") {
+  if (["agent","team"].includes(input.generation)) {
+    const goals = input.generation === "team" ? buildExplorationGoals({brief:input.brief}) : undefined;
     const session = newSession(input, {cases: []});
     session.agent = {state:"planned",includeKnowledge:input.includeKnowledge,steps:[],evidence:[],decisions:0,summary:"Ready to explore. Start the agent to visit the target."};
+    if(input.generation==="team")session.team={state:"planned",summary:"Explorer and Verifier tasks will start after you choose Start team.",goals,tasks:[],events:[]};
     event(session,"Agent","Agent session created. Start explicitly to explore the live page."); return res.status(201).json(session);
   }
   // Generation creates a reviewable plan; it never starts a browser run.
   res.status(201).json(newSession(input, draft));
 });
 app.post("/api/sessions/:id/agent/run", async (req,res) => res.json(await startAgent(required(db.sessions,req.params.id),ai)));
+app.post("/api/sessions/:id/team/run",async(req,res)=>res.json(await teams.start(required(db.sessions,req.params.id))));
+app.post("/api/sessions/:id/team/retry",async(req,res)=>res.json(await teams.retry(required(db.sessions,req.params.id))));
 app.get("/api/sessions/:id", (req, res) =>
   res.json(required(db.sessions, req.params.id)),
 );
@@ -549,7 +557,7 @@ const timer = setInterval(async () => {
       if (
         !schedule.enabled ||
         Date.parse(schedule.nextRunAt) > Date.now() ||
-        active.size >= 2
+        browserCount() >= 2
       )
         continue;
       const previous = db.sessions.find((s) => s.id === schedule.lastRunId);
