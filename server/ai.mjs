@@ -344,7 +344,11 @@ export function createAiPlanner({
         text: {format: {type: "json_schema", name: "trace_agent_action", strict: true, schema: agentDecisionJson}},
       }, {signal: AbortSignal.any([signal, AbortSignal.timeout(20000)])});
       if (response.status !== "completed") throw failure("AI agent could not complete its decision.");
-      const decision = agentDecisionSchema.parse(JSON.parse(response.output_text));
+      // Responses may contain multiple assistant messages. Only the first action is
+      // eligible; later messages have not observed the result of its execution.
+      const message = response.output?.find(item => item.type === "message");
+      const firstText = message ? message.content?.find(item => item.type === "output_text")?.text : response.output_text;
+      const decision = agentDecisionSchema.parse(JSON.parse(firstText));
       used.lastSuccessAt = new Date(clock()).toISOString(); used.verifiedModel = config.model; save();
       return decision;
     } catch {

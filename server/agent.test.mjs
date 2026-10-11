@@ -20,8 +20,9 @@ test('only current safe targets and supplied expected text are executable',()=>{
 });
 test('agent model requests share the daily quota and strict private response contract',async()=>{
  const db={};let request;
- const model=createAiPlanner({env:{AZURE_OPENAI_ENDPOINT:'https://example.cognitiveservices.azure.com/',AZURE_OPENAI_DEPLOYMENT:'trace-drafting'},db,save(){},client:{responses:{async create(body){request=body;return {status:'completed',output_text:JSON.stringify(decision('blocked'))};}}}});
- await model.decide({brief:'Inspect'},new AbortController().signal);
+ const model=createAiPlanner({env:{AZURE_OPENAI_ENDPOINT:'https://example.cognitiveservices.azure.com/',AZURE_OPENAI_DEPLOYMENT:'trace-drafting'},db,save(){},client:{responses:{async create(body){request=body;return {status:'completed',output_text:JSON.stringify(decision('blocked'))+JSON.stringify(decision('finish')),output:[{type:'message',content:[{type:'output_text',text:JSON.stringify(decision('blocked'))}]},{type:'message',content:[{type:'output_text',text:JSON.stringify(decision('finish'))}]}]};}}}});
+ const chosen=await model.decide({brief:'Inspect'},new AbortController().signal);
+ assert.equal(chosen.action,'blocked');
  assert.equal(request.store,false);assert.equal(request.text.format.strict,true);assert.equal(model.status().remainingToday,59);
  db.aiUsage.attempts=60;
  await assert.rejects(model.decide({},new AbortController().signal),{status:429});
