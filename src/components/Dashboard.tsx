@@ -18,7 +18,7 @@ export function Dashboard({ data, go, onNew, onImport }: Props) {
     const unique = new Map((s.history || []).map(r => [r.runId, { ...r, session: s }]));
     if (s.runId && s.finishedAt && s.status !== "running") unique.set(s.runId, {runId:s.runId, at:s.finishedAt, status:s.status, cases:s.cases, findings:s.findings, session:s});
     return [...unique.values()];
-  }).filter(r => new Date(r.at).getTime() >= cutoff).sort((a,b) => a.at.localeCompare(b.at));
+  }).filter(r => r.status === "completed" && new Date(r.at).getTime() >= cutoff).sort((a,b) => a.at.localeCompare(b.at));
   const latestCases = recent.flatMap(s => s.cases);
   const latestCounts = counts(latestCases);
   const runCases = runs.flatMap(r => r.cases);
