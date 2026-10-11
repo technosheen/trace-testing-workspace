@@ -151,7 +151,7 @@ function WorkspaceApp({ onSignOut }: { onSignOut?: () => void }) {
                   onBack={() => go("sessions")}
                   onRun={() =>
                     void act(
-                      () => request(`/sessions/${selected.id}/run`, "POST"),
+                      () => request(`/sessions/${selected.id}/${selected.agent && !selected.cases.length ? "agent/run" : "run"}`, "POST"),
                       "Browser run started.",
                     )
                   }

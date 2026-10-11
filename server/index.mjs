@@ -11,6 +11,7 @@ import { validateTarget } from "./policy.mjs";
 import { runSession, cancel, isRunning, active } from "./runner.mjs";
 import { demo, product } from "./demo.mjs";
 import { createAiPlanner } from "./ai.mjs";
+import { startAgent } from "./agent.mjs";
 
 import { hosted, authenticated, verifyPassword } from "./auth.mjs";
 const app = express();
@@ -52,7 +53,7 @@ const sessionSchema = z.object({
   mode: z.enum(["smoke", "accessibility", "navigation"]).default("smoke"),
   brief: z.string().max(3000).default(""),
   expectedText: z.string().max(200).default(""),
-  generation: z.enum(["standard", "ai"]).default("standard"),
+  generation: z.enum(["standard", "ai", "agent"]).default("standard"),
   includeKnowledge: z.boolean().default(false),
 });
 function required(items, value) {
@@ -191,9 +192,17 @@ app.post("/api/sessions", async (req, res) => {
     input.generation === "ai"
       ? await ai.generate(input, env, db.knowledge)
       : undefined;
+  if (input.generation === "agent" && (!input.brief.trim() || !ai.status().configured))
+    throw new Error("Describe the testing goal and connect Azure AI before creating an agent session.");
+  if (input.generation === "agent") {
+    const session = newSession(input, {cases: []});
+    session.agent = {state:"planned",includeKnowledge:input.includeKnowledge,steps:[],evidence:[],decisions:0,summary:"Ready to explore. Start the agent to visit the target."};
+    event(session,"Agent","Agent session created. Start explicitly to explore the live page."); return res.status(201).json(session);
+  }
   // Generation creates a reviewable plan; it never starts a browser run.
   res.status(201).json(newSession(input, draft));
 });
+app.post("/api/sessions/:id/agent/run", async (req,res) => res.json(await startAgent(required(db.sessions,req.params.id),ai)));
 app.get("/api/sessions/:id", (req, res) =>
   res.json(required(db.sessions, req.params.id)),
 );

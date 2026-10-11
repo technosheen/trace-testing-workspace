@@ -12,6 +12,7 @@ export function cancel(session) {
   const run = active.get(session.id);
   if (!run) throw new Error("No active run.");
   run.cancelled = true;
+  run.abort?.();
   session.status = "cancelling";
   event(
     session,
@@ -20,7 +21,7 @@ export function cancel(session) {
   );
   run.browser?.close().catch(() => {});
 }
-async function isolatedContext(browser, url) {
+export async function isolatedContext(browser, url) {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 960 },
     serviceWorkers: "block",
@@ -45,7 +46,7 @@ async function isolatedContext(browser, url) {
   context.setDefaultTimeout(10000);
   return context;
 }
-async function open(context, url) {
+export async function open(context, url) {
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -56,7 +57,7 @@ async function open(context, url) {
   await page.waitForTimeout(750);
   return { page, inputs: { url, status: response?.status() || 0, errors } };
 }
-async function screenshot(page, prefix) {
+export async function screenshot(page, prefix) {
   const filename = `${prefix}-${id()}.png`;
   await page.screenshot({
     path: path.join(artifacts, filename),

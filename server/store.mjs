@@ -30,6 +30,7 @@ export const db = fs.existsSync(file)
 for (const session of db.sessions) {
   if (["running", "cancelling"].includes(session.status)) {
     session.status = "interrupted";
+    if(session.agent?.state === "running") {session.agent.state="interrupted";session.agent.summary="Service restarted; exploration was interrupted.";}
     session.cases.forEach((c) => {
       if (c.status === "running") c.status = "blocked";
     });

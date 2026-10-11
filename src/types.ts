@@ -61,6 +61,7 @@ export type Run = {
   findings: Finding[];
 };
 export type Session = {
+  agent?: {state:string; summary:string; decisions:number; trace?:string; steps:{index:number;action:string;status:string;summary:string}[]; evidence:Evidence[]};
   archivedAt?: string;
   generation?: {
     provider: string;
