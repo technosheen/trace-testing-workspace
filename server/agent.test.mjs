@@ -78,3 +78,14 @@ test('blocked actions retain a safe failure category instead of hiding the cause
   assert.throws(()=>groundDecision(decision('assertText',observed.targets[0].ref,'private unexpected secret'),observed,'Home'),error=>error.code==='unsupplied_expectation'&&!error.message.includes('secret'));
  }finally{await browser.close();}
 });
+
+test('agent decisions are paced and cancellation does not spend a queued request',async()=>{
+ const calls=[];const db={};
+ const model=createAiPlanner({env:{AZURE_OPENAI_ENDPOINT:'https://example.cognitiveservices.azure.com/',AZURE_OPENAI_DEPLOYMENT:'trace-drafting'},db,save(){},decisionIntervalMs:80,client:{responses:{async create(){calls.push(Date.now());return {status:'completed',output_text:JSON.stringify(decision('finish'))};}}}});
+ await model.decide({},new AbortController().signal);
+ await model.decide({},new AbortController().signal);
+ assert.ok(calls[1]-calls[0]>=70,'consecutive decisions must respect the configured interval');
+ const stop=new AbortController();const queued=model.decide({},stop.signal);stop.abort();
+ await assert.rejects(queued,error=>error.code==='cancelled');
+ assert.equal(calls.length,2);assert.equal(db.aiUsage.attempts,2);
+});

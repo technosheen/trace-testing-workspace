@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { setTimeout as pause } from "node:timers/promises";
 import { agentError } from "./agent-errors.mjs";
 import {
   DefaultAzureCredential,
@@ -171,6 +172,7 @@ export function createAiPlanner({
   save,
   client: injectedClient,
   clock = () => Date.now(),
+  decisionIntervalMs = 10000,
 }) {
   const config = aiConfig(env);
   let client,
@@ -336,8 +338,13 @@ export function createAiPlanner({
     if (generating) throw Object.assign(agentError("ai_busy"), {status:409});
     const used = usage();
     if (used.attempts >= 60) throw Object.assign(agentError("ai_quota"), {status:429});
-    generating = true; used.attempts++; used.lastAttemptAt = clock(); save();
+    generating = true;
     try {
+      // Azure can enforce short-window rate limits even with spare minute quota.
+      // Wait before reserving the request so cancellation does not spend it.
+      if (used.lastAttemptAt !== null) await pause(Math.max(0, decisionIntervalMs - (clock() - used.lastAttemptAt)), undefined, {signal});
+      if (signal.aborted) throw agentError("cancelled");
+      used.attempts++; used.lastAttemptAt = clock(); save();
       const response = await getClient().responses.create({
         model: config.model, store: false, max_output_tokens: 500,
         instructions: agentInstructions,
