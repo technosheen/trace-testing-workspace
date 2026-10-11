@@ -127,6 +127,7 @@ function WorkspaceApp({ onSignOut }: { onSignOut?: () => void }) {
           <button onClick={() => void refresh()}>Retry</button>
         </div>
       )}
+      {data?.service.storage?.healthy === false && <div className="connection-error" role="alert"><TriangleAlert size={18}/><span>Workspace storage is unavailable. Changes and new runs are paused. You can still export existing reports.</span></div>}
       {!data ? (
         <div className="loading-state">
           <LoaderCircle className="spin" size={25} />

@@ -211,3 +211,12 @@ test("knowledge is scoped before limiting and provider schema requires journeys"
   assert.deepEqual(notes.map(n=>n.category),["terminology","rules"]);
   assert.ok(request.text.format.schema.required.includes("journeys"));
 });
+
+test('agent AI failures retain safe categories without provider secrets', async () => {
+ for (const [providerError,code] of [[Object.assign(new Error('private credential'),{status:429}),'ai_rate_limit'],[new Error('private credential'),'ai_unavailable']]) {
+  const planner=createAiPlanner({env,db:{},save(){},client:{responses:{async create(){throw providerError;}}}});
+  await assert.rejects(planner.decide({},new AbortController().signal),error=>error.code===code&&!error.message.includes('private credential'));
+ }
+ const planner=createAiPlanner({env,db:{},save(){},client:{responses:{async create(){return {status:'completed',output_text:'private malformed output'};}}}});
+ await assert.rejects(planner.decide({},new AbortController().signal),error=>error.code==='invalid_decision'&&!error.message.includes('private malformed'));
+});

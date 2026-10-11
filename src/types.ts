@@ -135,6 +135,7 @@ export type Workspace = {
     mode: string;
     engine: string;
     activeRuns: number;
+    storage?: { healthy: boolean; durability: string };
     ai?: {
       configured: boolean;
       provider: string;

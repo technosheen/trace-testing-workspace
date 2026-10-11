@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { agentError } from "./agent-errors.mjs";
 import {
   DefaultAzureCredential,
   getBearerTokenProvider,
@@ -331,10 +332,10 @@ export function createAiPlanner({
     }
   }
   async function decide(input, signal) {
-    if (!config) throw failure("AI generation is not connected.", 503);
-    if (generating) throw failure("Another AI request is active.", 409);
+    if (!config) throw Object.assign(agentError("ai_unavailable"), {status:503});
+    if (generating) throw Object.assign(agentError("ai_busy"), {status:409});
     const used = usage();
-    if (used.attempts >= 60) throw failure("Daily AI request limit reached.", 429);
+    if (used.attempts >= 60) throw Object.assign(agentError("ai_quota"), {status:429});
     generating = true; used.attempts++; used.lastAttemptAt = clock(); save();
     try {
       const response = await getClient().responses.create({
@@ -343,16 +344,18 @@ export function createAiPlanner({
         input: JSON.stringify(input),
         text: {format: {type: "json_schema", name: "trace_agent_action", strict: true, schema: agentDecisionJson}},
       }, {signal: AbortSignal.any([signal, AbortSignal.timeout(20000)])});
-      if (response.status !== "completed") throw failure("AI agent could not complete its decision.");
+      if (response.status !== "completed") throw agentError("invalid_decision");
       // Responses may contain multiple assistant messages. Only the first action is
       // eligible; later messages have not observed the result of its execution.
       const message = response.output?.find(item => item.type === "message");
       const firstText = message ? message.content?.find(item => item.type === "output_text")?.text : response.output_text;
-      const decision = agentDecisionSchema.parse(JSON.parse(firstText));
+      let decision;
+      try { decision = agentDecisionSchema.parse(JSON.parse(firstText)); } catch { throw agentError("invalid_decision"); }
       used.lastSuccessAt = new Date(clock()).toISOString(); used.verifiedModel = config.model; save();
       return decision;
-    } catch {
-      throw failure(signal.aborted ? "Agent was stopped." : "AI agent decision failed. Check AI service availability and quota.");
+    } catch (error) {
+      const code = signal.aborted ? "cancelled" : error.code === "invalid_decision" ? "invalid_decision" : error.status === 429 ? "ai_rate_limit" : ["TimeoutError", "AbortError", "APIConnectionTimeoutError"].includes(error.name) ? "ai_timeout" : "ai_unavailable";
+      throw Object.assign(agentError(code), {status: error.status === 429 ? 429 : 502});
     } finally { generating = false; }
   }
   return { status, generate, decide };

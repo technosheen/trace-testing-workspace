@@ -1,6 +1,7 @@
 import { journey } from "./journey.mjs";
 import { id } from "./store.mjs";
 import { safeNavigation } from "./policy.mjs";
+import { responseNetworkError } from "./proxy.mjs";
 
 const definitions = [
   [
@@ -96,6 +97,14 @@ export function planCases(mode = "smoke", expectedText = "") {
   return cases;
 }
 export async function check(page, spec, context) {
+  if (context.status === 0 || context.networkError)
+    return {
+      status: "blocked",
+      summary: context.networkError
+        ? `Document navigation was ${context.networkError} by the network guard.`
+        : "No document HTTP response was observed.",
+      details: [],
+    };
   const result = (ok, summary, details = []) => ({
     status: ok ? "passed" : "issues_found",
     summary,
@@ -104,6 +113,14 @@ export async function check(page, spec, context) {
   switch (spec.kind) {
     case "journey": return journey(page, spec, context);
     case "http":
+      if (!context.status || context.networkError)
+        return {
+          status: "blocked",
+          summary: context.networkError
+            ? `Document navigation was ${context.networkError} by the network guard.`
+            : "No document HTTP response was observed.",
+          details: [],
+        };
       return result(
         context.status > 0 && context.status < 400,
         `Document returned HTTP ${context.status || "unknown"}.`,
@@ -140,18 +157,24 @@ export async function check(page, spec, context) {
     case "images": {
       const missing = await page
         .locator("img:visible")
-        .evaluateAll((imgs) =>
-          imgs
+        .evaluateAll((imgs) => {
+          const hasText = (element) => Boolean(
+            element?.textContent?.trim() ||
+            [...(element?.querySelectorAll("img[alt]") || [])].some(image => image.getAttribute("alt")?.trim()),
+          );
+          return imgs
             .filter(
               (img) =>
                 !img.hasAttribute("alt") &&
                 !["presentation", "none"].includes(img.getAttribute("role")) &&
                 img.getAttribute("aria-hidden") !== "true" &&
                 !img.getAttribute("aria-label") &&
-                !img.getAttribute("aria-labelledby"),
+                !(img.getAttribute("aria-labelledby") || "")
+                  .split(/\s+/)
+                  .some(value => hasText(document.getElementById(value))),
             )
-            .map((img) => img.getAttribute("src") || "(image without source)"),
-        );
+            .map((img) => img.getAttribute("src") || "(image without source)");
+        });
       return result(
         !missing.length,
         missing.length
@@ -165,22 +188,26 @@ export async function check(page, spec, context) {
         .locator(
           'input:visible:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]), select:visible, textarea:visible',
         )
-        .evaluateAll((els) =>
-          els
+        .evaluateAll((els) => {
+          const hasText = (element) => Boolean(
+            element?.textContent?.trim() ||
+            [...(element?.querySelectorAll("img[alt]") || [])].some(image => image.getAttribute("alt")?.trim()),
+          );
+          return els
             .filter(
               (el) =>
-                !el.labels?.length &&
+                ![...(el.labels || [])].some(hasText) &&
                 !el.getAttribute("aria-label")?.trim() &&
                 !el.getAttribute("title")?.trim() &&
                 !(el.getAttribute("aria-labelledby") || "")
                   .split(/\s+/)
-                  .some((v) => document.getElementById(v)?.textContent?.trim()),
+                  .some((v) => hasText(document.getElementById(v))),
             )
             .map(
               (el) =>
                 `${el.tagName.toLowerCase()}${el.id ? "#" + el.id : ""}${el.getAttribute("name") ? "[name=" + el.getAttribute("name") + "]" : ""}`,
-            ),
-        );
+            );
+        });
       return result(
         !missing.length,
         missing.length
@@ -252,6 +279,7 @@ export async function check(page, spec, context) {
       const checked = eligible.slice(0, 5);
       const details = [];
       let failures = 0;
+      let blocked = 0;
       for (const href of checked) {
         const tab = await page.context().newPage();
         try {
@@ -260,10 +288,16 @@ export async function check(page, spec, context) {
             timeout: 12000,
           });
           const status = response?.status() || 0;
-          if (!status || status >= 400) failures++;
-          details.push(`${status || "No response"} — ${href}`);
+          const networkError = responseNetworkError(response);
+          if (!status || networkError) {
+            blocked++;
+            details.push(`Blocked or unavailable — ${href}: ${networkError || "No document response"}`);
+          } else {
+            if (status >= 400) failures++;
+            details.push(`${status} — ${href}`);
+          }
         } catch (error) {
-          failures++;
+          blocked++;
           details.push(
             `Blocked or unavailable — ${href}: ${error.message.split("\n")[0]}`,
           );
@@ -271,6 +305,14 @@ export async function check(page, spec, context) {
           await tab.close();
         }
       }
+      const coverage = {
+        eligible: eligible.length,
+        attempted: checked.length,
+        passed: checked.length - failures - blocked,
+        failed: failures,
+        blocked,
+        skipped: eligible.length - checked.length,
+      };
       if (!checked.length)
         return {
           status: "blocked",
@@ -278,16 +320,18 @@ export async function check(page, spec, context) {
           details: [
             "Links with query strings, hash anchors, or state-changing path names are excluded.",
           ],
+          coverage,
         };
       if (eligible.length > 5)
         details.push(
           `${eligible.length - 5} additional links were outside this bounded check.`,
         );
-      return result(
-        !failures,
-        `${checked.length} link(s) checked; ${failures} did not resolve successfully.`,
+      return {
+        status: failures ? "issues_found" : blocked ? "blocked" : "passed",
+        summary: `${checked.length} link(s) attempted; ${coverage.passed} passed, ${failures} failed with an HTTP error, ${blocked} blocked.`,
         details,
-      );
+        coverage,
+      };
     }
     default:
       throw new Error("Unsupported check kind.");

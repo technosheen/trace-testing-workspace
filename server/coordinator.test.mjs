@@ -116,3 +116,61 @@ test('deadline stops work without marking it verified and waits for cleanup', as
   cleanup.resolve(); await idle;
   assert.equal(session.team.state, 'blocked'); assert.equal(session.team.tasks.length, 1);
 });
+
+test('worker failures retain allowlisted diagnostics without exposing provider or page secrets',async()=>{
+ const coordinator=createCoordinator(options({executeExplorer:async()=>{throw Object.assign(Error('private credential page content'),{code:'invalid_target'});}}));
+ const session={id:'diagnostic'};
+ coordinator.start(session,[goal('Home')]);await coordinator.whenIdle(session.id);
+ assert.equal(session.team.tasks[0].failureKind,'invalid_target');
+ assert.match(session.team.tasks[0].summary,/current observation/i);
+ assert.doesNotMatch(JSON.stringify(session.team),/private credential/);
+});
+
+test('retry clears obsolete failure diagnostics after successful work', async () => {
+ let first=true;
+ const coordinator=createCoordinator(options({executeExplorer:async()=>{if(first){first=false;throw Object.assign(new Error('target absent'),{code:'invalid_target'});}return {state:'completed',case:check};}}));
+ const session={id:'diagnostic-retry'};
+ coordinator.start(session,[goal('Home')]);await coordinator.whenIdle(session.id);
+ assert.equal(session.team.tasks[0].failureKind,'invalid_target');
+ coordinator.retry(session);await coordinator.whenIdle(session.id);
+ assert.equal(session.team.state,'verified');
+ assert.equal(session.team.tasks[0].failureKind,undefined);
+});
+
+test('persistence failure during work aborts siblings and releases coordinator capacity', async () => {
+ let broken=false,releases=0;
+ const coordinator=createCoordinator(options({save(){if(broken)throw Object.assign(Error('private storage path'),{code:'TRACE_STORAGE_STALE'});},capacity:{release(){releases++;}},executeExplorer:async()=>{await tick();broken=true;return {state:'completed',case:check};}}));
+ const session={id:'storage-outage'};
+ coordinator.start(session,[goal('Home'),goal('Menu')]);
+ await Promise.race([coordinator.whenIdle(session.id),new Promise((_,reject)=>setTimeout(()=>reject(Error('cleanup did not settle')),500))]);
+ assert.equal(coordinator.isRunning(session.id),false);
+ assert.equal(session.team.state,'blocked');
+ assert.equal(releases,2);
+});
+
+test('failed worker admission releases its reservation and rejects without launching a worker', async () => {
+ let saves=0,reserved=0,workers=0;
+ const outage=Object.assign(Error('private storage path'),{code:'TRACE_STORAGE_WRITE_FAILED'});
+ const coordinator=createCoordinator(options({save(){if(++saves===2)throw outage;},capacity:{reserve(){reserved++;},release(){reserved--;}},executeExplorer:async()=>{workers++;return {};}}));
+ const session={id:'failed-admission',team:{state:'planned',tasks:[],events:[],goals:[goal('Home')]}};
+ const before=structuredClone(session.team);
+ assert.throws(()=>coordinator.start(session,[goal('Home')]),error=>error===outage);
+ await coordinator.whenIdle(session.id);
+ assert.equal(reserved,0);assert.equal(workers,0);assert.equal(coordinator.isRunning(session.id),false);
+ assert.deepEqual(session.team,before);
+ assert.throws(()=>coordinator.start({id:'another'},[goal('Home')]),error=>error===outage);
+});
+
+test('shared storage failure aborts another team and holds reservations until cleanup', async () => {
+ let broken=false,reserved=0,aborted=0;
+ const first=deferred(),second=deferred();
+ const coordinator=createCoordinator(options({save(){if(broken)throw Object.assign(Error('storage outage'),{code:'TRACE_STORAGE_STALE'});},capacity:{reserve(){reserved++;},release(){reserved--;}},executeExplorer:async(task,{signal})=>{signal.addEventListener('abort',()=>aborted++);await (task.name==='First'?first:second).promise;return {state:'blocked'};}}));
+ const a={id:'team-a'},b={id:'team-b'};
+ coordinator.start(a,[goal('First')]);coordinator.start(b,[goal('Second')]);
+ const idleA=coordinator.whenIdle(a.id),idleB=coordinator.whenIdle(b.id);
+ broken=true;first.resolve();await idleA;
+ assert.equal(aborted,1);assert.equal(reserved,1);assert.equal(coordinator.isRunning(b.id),true);
+ second.resolve();await idleB;
+ assert.equal(reserved,0);assert.equal(coordinator.isRunning(b.id),false);assert.equal(b.team.state,'blocked');
+ assert.doesNotMatch(JSON.stringify(b.team),/storage outage/);
+});

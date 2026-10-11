@@ -62,3 +62,19 @@ test('real browser observations discover a changing menu and record replayable a
 
  }finally{await browser.close();}
 });
+
+test('blocked actions retain a safe failure category instead of hiding the cause',async()=>{
+ const browser=await chromium.launch({channel:'chrome',headless:true});
+ try {
+  const page=await browser.newPage();
+  await page.route('http://example.test/**',route=>route.fulfill({body:'<h1>Home</h1><button>Explore</button><div style="position:fixed;inset:0;z-index:99">Overlay</div>',contentType:'text/html'}));
+  await page.goto('http://example.test');
+  const result=await explore(page,{brief:'Explore the heading',signal:new AbortController().signal,decide:async({observation})=>decision('click',observation.targets.find(t=>t.name==='Explore').ref)});
+  assert.equal(result.state,'blocked');
+  assert.equal(result.steps[0].failureKind,'action_timeout');
+  assert.match(result.summary,/timeout/i);
+  const observed=await observe(page,new URL(page.url()).origin);
+  assert.throws(()=>groundDecision(decision('click','missing'),observed,''),error=>error.code==='invalid_target');
+  assert.throws(()=>groundDecision(decision('assertText',observed.targets[0].ref,'private unexpected secret'),observed,'Home'),error=>error.code==='unsupplied_expectation'&&!error.message.includes('secret'));
+ }finally{await browser.close();}
+});

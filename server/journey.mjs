@@ -1,4 +1,5 @@
 import { isDemo, safeNavigation, validateTarget } from './policy.mjs';
+import { responseNetworkError } from './proxy.mjs';
 function locator(page,target){return target.selector?page.locator(target.selector):page.getByRole(target.role,{name:target.name,exact:true});}
 export async function journey(page,spec,inputs){
  const steps=[];let status='passed';
@@ -10,7 +11,9 @@ export async function journey(page,spec,inputs){
     const url=await validateTarget(new URL(a.url,inputs.url).href,isDemo(new URL(inputs.url)));
     if(!safeNavigation(url))throw Error('Navigation is outside the read-only policy.');
     const response=await page.goto(url.href,{waitUntil:'domcontentloaded',timeout:20000});
-    if(!response||response.status()>=400)throw Error('Destination returned an unsuccessful response.');
+    const networkError=responseNetworkError(response);
+    if(!response||networkError)throw Error(networkError?`Destination navigation was ${networkError} by the network guard.`:'No destination HTTP response was observed.');
+    if(response.status()>=400){failureKind='http_error';throw Error(`Destination returned HTTP ${response.status()}.`);}
    }else if(a.action==='click')await element.click();
    else if(a.action==='hover')await element.hover();
    else if(a.action==='fill')await element.fill(a.value);
@@ -27,7 +30,7 @@ export async function journey(page,spec,inputs){
    }
    steps.push({index:i+1,action:a.action,status:'passed',durationMs:Date.now()-start,summary:'Completed.'});
   }catch(error){
-   status=failureKind==='assertion_mismatch'?'issues_found':'blocked';
+   status=['assertion_mismatch','http_error'].includes(failureKind)?'issues_found':'blocked';
    steps.push({index:i+1,action:a.action,status,failureKind,durationMs:Date.now()-start,summary:error.message.split('\n')[0]});
    for(let j=i+1;j<spec.actions.length;j++)steps.push({index:j+1,action:spec.actions[j].action,status:'not_run',summary:'Skipped after the preceding step failed.'});
    break;

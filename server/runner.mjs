@@ -1,9 +1,9 @@
 import path from "node:path";
 import { chromium } from "playwright";
-import { dataDir, id, now, save, event } from "./store.mjs";
+import { dataDir, id, now, save, event, storageState } from "./store.mjs";
 import { check } from "./checks.mjs";
 import { validateTarget, isDemo, safeNavigation } from "./policy.mjs";
-import { guardedProxy } from "./proxy.mjs";
+import { guardedProxy, responseNetworkError } from "./proxy.mjs";
 
 export const active = new Map();
 export const browserCount = () => [...active.values()].filter(run => run.slots !== 0).length;
@@ -15,7 +15,7 @@ export function cancel(session) {
   run.cancelled = true;
   run.abort?.();
   session.status = "cancelling";
-  event(
+  if (storageState.healthy) event(
     session,
     "Runner",
     "Cancellation requested. Closing the active browser.",
@@ -56,7 +56,15 @@ export async function open(context, url) {
     timeout: 20000,
   });
   await page.waitForTimeout(750);
-  return { page, inputs: { url, status: response?.status() || 0, errors } };
+  return {
+    page,
+    inputs: {
+      url,
+      status: response?.status() || 0,
+      networkError: responseNetworkError(response),
+      errors,
+    },
+  };
 }
 export async function screenshot(page, prefix) {
   const filename = `${prefix}-${id()}.png`;
@@ -82,6 +90,7 @@ export async function runSession(session) {
       "A run started while validating the target. Try again after it finishes.",
     );
   const control = { cancelled: false, browser: null };
+  const previous = structuredClone(session);
   active.set(session.id, control);
   if (session.runId)
     session.history.push({
@@ -105,15 +114,23 @@ export async function runSession(session) {
       controls: [],
       durationMs: null,
     });
-  event(
-    session,
-    "Planner",
-    `Starting ${session.cases.length} browser checks. Form submissions and write requests are disabled.`,
-  );
+  try {
+    event(
+      session,
+      "Planner",
+      `Starting ${session.cases.length} browser checks. Form submissions and write requests are disabled.`,
+    );
+  } catch (error) {
+    active.delete(session.id);
+    for (const key of Object.keys(session)) delete session[key];
+    Object.assign(session, previous);
+    throw error;
+  }
   execute(session, control).catch((error) => {
     session.status = "interrupted";
-    event(session, "Runner", `Unexpected runner error: ${error.message}`);
     active.delete(session.id);
+    try { event(session, "Runner", `Unexpected runner error: ${error.message}`); }
+    catch { /* The store latches persistence failures; capacity is already released. */ }
   });
   return session;
 }

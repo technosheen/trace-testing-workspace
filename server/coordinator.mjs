@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import {workerFailure} from './agent-errors.mjs';
 
 const pending = new Set(['queued', 'running']);
 const retryable = new Set(['blocked', 'cancelled', 'interrupted']);
@@ -8,13 +9,35 @@ const runnable = item => item?.actions?.some(action => ['assertVisible', 'assert
 export function createCoordinator({ save = () => {}, event, clock = () => new Date().toISOString(), capacity = {}, executeExplorer, executeVerifier, timeoutMs = 300000, pollMs = 100 }) {
   if (typeof executeExplorer !== 'function' || typeof executeVerifier !== 'function') throw Error('Coordinator requires both worker adapters.');
   const jobs = new Map();
+  let persistenceFailure;
   const stamp = () => clock();
   const checkpoint = (session, message) => {
+    if (persistenceFailure) return false;
     if (message) {
       session.team.events.push({ id: randomUUID(), at: stamp(), message });
-      event?.(session, 'coordinator', message);
     }
-    save();
+    try {
+      if (message) event?.(session, 'coordinator', message);
+      save();
+      return true;
+    } catch (error) {
+      if (!error.code?.startsWith('TRACE_STORAGE_')) throw error;
+      const job = jobs.get(session.id);
+      if (!job) throw error;
+      persistenceFailure = error;
+      // Persistence is shared by every team. Stop admissions globally and keep
+      // reservations only until each active adapter finishes its cleanup.
+      for (const current of jobs.values()) {
+        current.persistenceError = error;
+        current.stopping = 'blocked';
+        current.session.team.state = 'stopping';
+        clearTimeout(current.deadline); clearTimeout(current.wakeup);
+        for (const item of current.session.team.tasks) if (item.state === 'queued') { item.state = 'blocked'; item.finishedAt = stamp(); }
+        for (const control of current.active.values()) control.abort();
+      }
+      for (const current of jobs.values()) if (current !== job && !current.active.size) finish(current);
+      return false;
+    }
   };
   const task = (role, goal, parentId) => ({ id: randomUUID(), parentId, goalId: goal.id, role, name: goal.name, brief: goal.brief, state: 'queued', startedAt: null, finishedAt: null });
 
@@ -38,6 +61,7 @@ export function createCoordinator({ save = () => {}, event, clock = () => new Da
     team.finishedAt = stamp();
     clearTimeout(job.deadline); clearTimeout(job.wakeup);
     checkpoint(session, team.summary);
+    if (job.persistenceError) { team.state = 'blocked'; team.summary = 'Workspace storage is unavailable. Work stopped; restore storage before retrying.'; }
     jobs.delete(session.id);
     job.resolve(team);
   }
@@ -66,7 +90,11 @@ export function createCoordinator({ save = () => {}, event, clock = () => new Da
       if (capacity.reserve?.(item, control) === false) break;
       job.active.set(item.id, control);
       item.state = 'running'; item.startedAt = stamp(); item.finishedAt = null;
-      checkpoint(job.session, `${item.role === 'explorer' ? 'Explorer' : 'Verifier'} started: ${item.name}`);
+      if (!checkpoint(job.session, `${item.role === 'explorer' ? 'Explorer' : 'Verifier'} started: ${item.name}`)) {
+        item.state = 'blocked'; item.finishedAt = stamp();
+        try { capacity.release?.(item); } finally { job.active.delete(item.id); }
+        break;
+      }
       void run(job, item, control);
     }
     finish(job);
@@ -96,9 +124,9 @@ export function createCoordinator({ save = () => {}, event, clock = () => new Da
         } else item.state = ['verified', 'issues_found', 'blocked'].includes(result?.state) ? result.state : 'blocked';
         item.summary = typeof result?.summary === 'string' ? result.summary.slice(0, 1000) : 'Worker completed without a summary.';
       }
-    } catch {
+    } catch (error) {
       item.state = job.stopping === 'cancelled' ? 'cancelled' : 'blocked';
-      item.summary = control.signal.aborted ? 'Worker stopped.' : 'Worker could not complete. Review its evidence or retry.';
+      Object.assign(item, workerFailure(control.signal.aborted ? {code:'cancelled'} : error));
     } finally {
       // A cancellation cannot settle the parent before the adapter finishes cleanup.
       item.finishedAt = stamp();
@@ -109,18 +137,21 @@ export function createCoordinator({ save = () => {}, event, clock = () => new Da
   }
 
   function launch(session) {
+    if (persistenceFailure) throw persistenceFailure;
     let resolve;
     const promise = new Promise(done => { resolve = done; });
     const job = { session, active: new Map(), resolve, promise, stopping: null };
     jobs.set(session.id, job);
     session.team.state = 'running'; session.team.finishedAt = null;
     job.deadline = setTimeout(() => stop(job, 'blocked'), Math.min(300000, timeoutMs));
-    checkpoint(session, 'Coordinator queued the requested work.');
+    if (!checkpoint(session, 'Coordinator queued the requested work.')) { finish(job); throw job.persistenceError; }
     schedule(job);
+    if (job.persistenceError) throw job.persistenceError;
     return session.team;
   }
 
   function start(session, goals) {
+    if (persistenceFailure) throw persistenceFailure;
     if (!session?.id) throw Error('Session ID is required.');
     if (jobs.has(session.id) || (session.team && !(session.team.state === 'planned' && session.team.tasks?.length === 0))) throw Error('This session already has a team. Retry its existing work explicitly.');
     if (!Array.isArray(goals) || !goals.length || goals.length > 3) throw Error('Choose between one and three goals.');
@@ -129,16 +160,24 @@ export function createCoordinator({ save = () => {}, event, clock = () => new Da
       return { id: randomUUID(), name: goal.name.trim(), brief: goal.brief.trim() };
     });
     const teamId = randomUUID();
+    const previous = session.team && structuredClone(session.team);
     session.team = { id: teamId, state: 'planned', summary: 'Ready to coordinate browser work.', tasks: normalized.map(goal => task('explorer', goal, teamId)), events: [], startedAt: stamp(), finishedAt: null };
-    return launch(session);
+    try { return launch(session); }
+    catch (error) {
+      if (error.code?.startsWith('TRACE_STORAGE_') && !jobs.has(session.id)) {
+        if (previous) session.team = previous; else delete session.team;
+      }
+      throw error;
+    }
   }
 
   function cancel(session) { const job = jobs.get(session.id); if (job) stop(job, 'cancelled'); return session.team; }
   function retry(session) {
+    if (persistenceFailure) throw persistenceFailure;
     if (jobs.has(session.id)) throw Error('This team is already running.');
     if (!session.team?.tasks?.some(item => retryable.has(item.state))) throw Error('This team has no interrupted or blocked work to retry.');
-    for (const item of session.team.tasks) if (retryable.has(item.state)) { item.state = 'queued'; delete item.result; item.summary = null; }
-    for (const item of session.team.tasks) if (item.role === 'verifier' && session.team.tasks.some(parent => parent.id === item.parentId && parent.state === 'queued')) { item.state = 'queued'; delete item.result; }
+    for (const item of session.team.tasks) if (retryable.has(item.state)) { item.state = 'queued'; delete item.result; delete item.failureKind; item.summary = null; }
+    for (const item of session.team.tasks) if (item.role === 'verifier' && session.team.tasks.some(parent => parent.id === item.parentId && parent.state === 'queued')) { item.state = 'queued'; delete item.result; delete item.failureKind; }
     return launch(session);
   }
   function recover(sessions) {

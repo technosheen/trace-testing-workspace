@@ -3,6 +3,14 @@ import net from "node:net";
 import { lookup } from "node:dns/promises";
 import { validateTarget } from "./policy.mjs";
 
+export function responseNetworkError(response) {
+  // HTTP responses pass through the guard, which strips target copies below.
+  // HTTPS headers remain encrypted inside CONNECT; a target may set any header.
+  if (!response?.url().startsWith("http:")) return undefined;
+  const marker = response.headers()["x-trace-network-error"];
+  return ["blocked", "unavailable"].includes(marker) ? marker : undefined;
+}
+
 // Enforce destination policy below Playwright's route layer: Chromium does not
 // invoke a route handler for every hop of a redirected request.
 export async function guardedProxy(allowDemo) {
@@ -52,19 +60,24 @@ export async function guardedProxy(allowDemo) {
           timeout: 15000,
         },
         (upstream) => {
-          res.writeHead(upstream.statusCode || 502, upstream.headers);
+          // Only this guard can attest that a response was synthesized locally.
+          // Strip a target's same-named header so it cannot hide an HTTP failure.
+          const responseHeaders = { ...upstream.headers };
+          delete responseHeaders["x-trace-network-error"];
+          res.writeHead(upstream.statusCode || 502, responseHeaders);
           upstream.pipe(res);
         },
       );
       outgoing.on("timeout", () => outgoing.destroy());
       outgoing.on("error", () => {
-        if (!res.headersSent) res.writeHead(502);
+        if (!res.headersSent)
+          res.writeHead(502, { "x-trace-network-error": "unavailable" });
         res.end();
       });
       req.pipe(outgoing);
       res.on("close", () => outgoing.destroy());
     } catch {
-      res.writeHead(403);
+      res.writeHead(403, { "x-trace-network-error": "blocked" });
       res.end("Destination blocked by Trace network policy.");
     }
   });

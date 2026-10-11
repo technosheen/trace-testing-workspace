@@ -71,9 +71,21 @@ export function createTeamRuntime(model,{coordinatorOptions={}}={}) {
   if(retry&&session.runId)session.history.push({runId:session.runId,at:session.finishedAt||session.startedAt,status:session.status,cases:structuredClone(session.cases),findings:structuredClone(session.findings)});
   active.set(session.id,{slots:0,cancelled:false,abort:()=>coordinator.cancel(session)});
   try{retry?coordinator.retry(session):coordinator.start(session,session.team.goals||buildExplorationGoals({brief:session.brief}));}
-  catch(error){active.delete(session.id);throw error;}
-  session.runId=id();session.status='running';session.startedAt=now();session.finishedAt=null;save();
-  void coordinator.whenIdle(session.id).then(()=>{active.delete(session.id);session.finishedAt=now();session.status=session.team.state==='cancelled'?'cancelled':session.team.state==='interrupted'?'interrupted':'completed';session.runId ||= id();save();});
+  catch(error){
+   if(error.code?.startsWith('TRACE_STORAGE_')){await coordinator.whenIdle(session.id);session.status='blocked';}
+   active.delete(session.id);throw error;
+  }
+  const idle=coordinator.whenIdle(session.id);
+  // Register teardown before the parent checkpoint, which can itself fail.
+  void idle.then(()=>{
+   active.delete(session.id);session.finishedAt=now();session.status=session.team.state==='cancelled'?'cancelled':session.team.state==='interrupted'?'interrupted':'completed';session.runId ||= id();
+   try{save();}catch(error){if(!error.code?.startsWith('TRACE_STORAGE_'))throw error;session.status='blocked';}
+  });
+  session.runId=id();session.status='running';session.startedAt=now();session.finishedAt=null;
+  try{save();}catch(error){
+   if(!error.code?.startsWith('TRACE_STORAGE_'))throw error;
+   coordinator.cancel(session);await idle;active.delete(session.id);session.status='blocked';throw error;
+  }
   return session;
  }
  return {start:session=>begin(session),retry:session=>begin(session,true),recover:sessions=>coordinator.recover(sessions),coordinator};

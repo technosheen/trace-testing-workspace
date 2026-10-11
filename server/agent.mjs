@@ -3,8 +3,9 @@ import { chromium } from 'playwright';
 import { active, browserCount, isolatedContext, open, screenshot } from './runner.mjs';
 import { guardedProxy } from './proxy.mjs';
 import { validateTarget, safeNavigation, isDemo } from './policy.mjs';
-import { db, save, event, id, now, dataDir } from './store.mjs';
+import { db, save, event, id, now, dataDir, storageState } from './store.mjs';
 import { agentDecisionSchema } from './ai.mjs';
+import {agentError,workerFailure} from './agent-errors.mjs';
 
 const dangerous = /\b(delete|remove|destroy|purchase|pay|checkout|logout|sign out|sign in|subscribe|submit|send|save)\b/i;
 export async function observe(page, origin) {
@@ -32,17 +33,19 @@ export async function observe(page, origin) {
 }
 
 export function groundDecision(raw, observation, supplied) {
-  const decision=agentDecisionSchema.parse(raw);
+  let decision;
+  try { decision=agentDecisionSchema.parse(raw); }
+  catch { throw agentError('invalid_decision'); }
   if(['finish','blocked'].includes(decision.action)) {
-    if(decision.ref || decision.value)throw Error('Terminal decisions cannot name a target.');
+    if(decision.ref || decision.value)throw agentError('invalid_decision');
     return {decision};
   }
   const target=observation.targets.find(t=>t.ref===decision.ref);
-  if(!target)throw Error('Agent selected a target absent from the current observation.');
-  if(decision.action==='click'&&!target.canClick)throw Error('This target is outside the read-only action policy.');
+  if(!target)throw agentError('invalid_target');
+  if(decision.action==='click'&&!target.canClick)throw agentError('unsafe_action');
   if(decision.action==='assertText') {
-    if(!decision.value.trim() || !supplied.includes(decision.value))throw Error('Expected text must be copied from the supplied requirements.');
-  } else if(decision.value)throw Error('Unexpected action value.');
+    if(!decision.value.trim() || !supplied.includes(decision.value))throw agentError('unsupplied_expectation');
+  } else if(decision.value)throw agentError('invalid_decision');
   return {decision,target};
 }
 
@@ -57,24 +60,24 @@ export async function explore(page, {brief,knowledge=[],decide,signal,maxDecisio
     if(signal.aborted)throw Error('Agent was stopped.');
     if(decision.action==='blocked')return {state:'blocked',summary:decision.reason,actions,steps};
     if(decision.action==='finish') {
-      if(!actions.some(a=>a.action.startsWith('assert')))throw Error('Agent cannot finish without an executed assertion.');
+      if(!actions.some(a=>a.action.startsWith('assert')))throw agentError('premature_finish');
       return {state:'completed',summary:decision.reason,actions,steps};
     }
     const replay={action:decision.action,target:{role:target.role,name:target.name},...(decision.action==='assertText'?{value:decision.value}:{})};
     const key=JSON.stringify([page.url(),replay]);
-    if(seen.has(key))throw Error('Agent repeated an action without making progress.');
+    if(seen.has(key))throw agentError('repeated_action');
     seen.add(key);
     const locator=page.getByRole(target.role,{name:target.name,exact:true});
-    if(await locator.count()!==1 || !await locator.isVisible())throw Error('Observed target changed before execution.');
+    if(await locator.count()!==1 || !await locator.isVisible())throw agentError('target_changed');
     let failure;
     try {
       if(decision.action==='click')await locator.click({timeout:5000});
       else if(decision.action==='assertVisible')await locator.waitFor({state:'visible',timeout:5000});
-      else if(!(await locator.innerText()).includes(decision.value))throw Error('Expected text was not visible.');
-      if(new URL(page.url()).origin!==origin || !safeNavigation(new URL(page.url())))throw Error('Navigation left the allowed scope.');
-    } catch(error) {failure=error;}
+      else if(!(await locator.innerText()).includes(decision.value))throw agentError('assertion_mismatch');
+      if(new URL(page.url()).origin!==origin || !safeNavigation(new URL(page.url())))throw agentError('scope_violation');
+    } catch(error) {failure=error.code ? error : agentError(error.name==='TimeoutError'?'action_timeout':'action_failed');}
     actions.push(replay);
-    const step={index:steps.length+1,action:decision.action,target:replay.target,value:replay.value,status:failure?'blocked':'passed',summary:failure?'Action or assertion could not be completed.':`Executed ${decision.action} on ${target.name}`,url:page.url(),at:now()};
+    const step={index:steps.length+1,action:decision.action,target:replay.target,value:replay.value,status:failure?'blocked':'passed',...(failure?workerFailure(failure):{summary:`Executed ${decision.action} on ${target.name}`}),url:page.url(),at:now()};
     steps.push(step);await onStep(step,page);
     if(failure)return {state:'blocked',summary:step.summary,actions,steps};
   }
@@ -82,15 +85,22 @@ export async function explore(page, {brief,knowledge=[],decide,signal,maxDecisio
 }
 
 export async function startAgent(session, model) {
+  if(session.team)throw Error('Start this session with the team endpoint.');
   if(!model.status().configured)throw Object.assign(Error('Connect Azure AI before starting an agent.'),{status:503});
   if(!session.agent || session.cases.length)throw Error('Create a new agent session to explore. Existing tests are preserved.');
   if(active.has(session.id)||browserCount()>=2)throw Error('Browser capacity is busy. Wait for an active run to finish.');
   await validateTarget(session.url);
   if(active.has(session.id)||browserCount()>=2)throw Error('Browser capacity is busy.');
   const controller=new AbortController(); const control={cancelled:false,browser:null,abort:()=>controller.abort()};
+  const previous=structuredClone(session);
   active.set(session.id,control);
   session.status='running';session.startedAt=now();session.finishedAt=null;session.agent={...session.agent,state:'running',steps:[],evidence:[],decisions:0,summary:'Exploring the live page.'};
-  event(session,'Agent','Live exploration started. Up to eight decisions; no form submissions.');
+  try { event(session,'Agent','Live exploration started. Up to eight decisions; no form submissions.'); }
+  catch(error) {
+    active.delete(session.id);controller.abort();
+    for(const key of Object.keys(session))delete session[key];
+    Object.assign(session,previous);throw error;
+  }
   void (async()=>{
     let browser,context,proxy;
     const timer=setTimeout(()=>{controller.abort();control.browser?.close().catch(()=>{});},120000);
@@ -126,18 +136,25 @@ export async function startAgent(session, model) {
       }
       session.status='ready';
       event(session,'Agent',`${result.summary} ${session.cases.length?'Saved an unexecuted replay test. Run checks to verify it independently.':'No runnable test was discovered.'}`);
-    } catch {
+    } catch(error) {
       session.agent.state=control.cancelled?'cancelled':controller.signal.aborted?'limited':'blocked';
-      session.agent.summary=control.cancelled?'Agent stopped by request.':controller.signal.aborted?'Exploration time budget reached.':'Exploration could not complete. Check target access, AI availability and quota.';
-      session.status=control.cancelled?'cancelled':'blocked';event(session,'Agent',session.agent.summary);
+      const failure=workerFailure(error);
+      session.agent.failureKind=control.cancelled?'cancelled':controller.signal.aborted?'ai_timeout':failure.failureKind;
+      session.agent.summary=control.cancelled?'Agent stopped by request.':controller.signal.aborted?'Exploration time budget reached.':failure.summary;
+      session.status=control.cancelled?'cancelled':'blocked';
+      if(storageState.healthy)event(session,'Agent',session.agent.summary);
     } finally {
       if(context) {
         const filename=`agent-${id()}.zip`;
         try {await context.tracing.stop({path:path.join(dataDir,'artifacts',filename)});session.agent.trace=`/artifacts/${filename}`;}catch{}
       }
       await browser?.close().catch(()=>{});await proxy?.close().catch(()=>{});
-      clearTimeout(timer);active.delete(session.id);session.finishedAt=now();save();
+      clearTimeout(timer);active.delete(session.id);session.finishedAt=now();if(storageState.healthy)save();
     }
-  })();
+  })().catch(error=>{
+    // Final checkpoints may be the first failed save; detached workers must still settle.
+    active.delete(session.id);session.finishedAt=now();session.status=control.cancelled?'cancelled':'blocked';
+    if(!session.agent.failureKind)Object.assign(session.agent,workerFailure(error),{state:control.cancelled?'cancelled':'blocked'});
+  });
   return session;
 }

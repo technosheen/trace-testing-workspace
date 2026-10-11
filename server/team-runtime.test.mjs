@@ -4,6 +4,33 @@ import http from 'node:http';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import {spawnSync} from 'node:child_process';
+
+test('a failed parent team checkpoint settles queued work and contains the terminal save rejection', async () => {
+ const temp=await fs.mkdtemp(path.join(os.tmpdir(),'trace-team-outage-'));
+ try {
+  const result=spawnSync(process.execPath,['--input-type=module','-e',`
+   import http from 'node:http';
+   import fs from 'node:fs';
+   const server=http.createServer((req,res)=>res.end('fixture'));
+   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+   process.env.PORT=String(server.address().port);
+   const {createTeamRuntime}=await import('./server/team-runtime.mjs');
+   const {db,save,dataDir}=await import('./server/store.mjs');
+   const {active}=await import('./server/runner.mjs');
+   const session={id:'parent-outage',name:'Fixture',brief:'Check Home',url:'http://127.0.0.1:'+process.env.PORT+'/demo',environmentId:'demo',cases:[],findings:[],activity:[],history:[],status:'ready',team:{state:'planned',tasks:[],events:[],goals:[{name:'Home',brief:'Check Home'}]}};
+   db.sessions.push(session);save();
+   let saves=0;
+   const runtime=createTeamRuntime({status:()=>({configured:true})},{coordinatorOptions:{capacity:{available:()=>false},save(){if(++saves===1)fs.writeFileSync(dataDir+'/workspace.json',JSON.stringify({...db,externalWriter:'preserve'}));}}});
+   let code;try{await runtime.start(session);}catch(error){code=error.code;}
+   await new Promise(resolve=>setTimeout(resolve,20));
+   console.log(JSON.stringify({code,active:active.size,running:runtime.coordinator.isRunning(session.id),status:session.status,external:JSON.parse(fs.readFileSync(dataDir+'/workspace.json')).externalWriter}));
+   await new Promise(resolve=>server.close(resolve));
+  `],{cwd:process.cwd(),env:{...process.env,TRACE_DATA_DIR:temp},encoding:'utf8',timeout:10000});
+  assert.equal(result.status,0,result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout),{code:'TRACE_STORAGE_STALE',active:0,running:false,status:'blocked',external:'preserve'});
+ }finally{await fs.rm(temp,{recursive:true,force:true});}
+});
 
 test('real browser team explores two goals, independently verifies and reproduces an assertion mismatch', {timeout:120000}, async () => {
   const fixture = http.createServer((request,response) => {

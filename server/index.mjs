@@ -5,7 +5,7 @@ import { z } from "zod";
 import YAML from "yaml";
 import { manifestSchema } from "./manifest.mjs";
 import { normalizeSchedule, nextScheduleAt } from "./scheduling.mjs";
-import { db, save, id, now, event, dataDir } from "./store.mjs";
+import { db, save, id, now, event, dataDir, storageState } from "./store.mjs";
 import { planCases, checkKinds } from "./checks.mjs";
 import { validateTarget } from "./policy.mjs";
 import { runSession, cancel, isRunning, active, browserCount } from "./runner.mjs";
@@ -30,7 +30,7 @@ const origins = new Set([
 ]);
 app.use((req, res, next) => {
   if (hosted && req.path === "/api/health" && req.method === "GET")
-    return res.json({ status: "ok" });
+    return res.status(storageState.healthy ? 200 : 503).json({ status: storageState.healthy ? "ok" : "unavailable" });
   if (hosted && !/^\/demo(?:\/|$)/.test(req.path) && !authenticated(req))
     return res.status(401).json({ error: "Authentication required." });
   if (!hosted && !hosts.has(req.headers.host))
@@ -41,6 +41,9 @@ app.use((req, res, next) => {
     !origins.has(req.headers.origin)
   )
     return res.status(403).json({ error: "Untrusted origin." });
+  const stoppingRun = req.method === "POST" && /^\/api\/sessions\/[^/]+\/cancel$/.test(req.path);
+  if (req.path.startsWith("/api") && !["GET", "HEAD", "OPTIONS"].includes(req.method) && !stoppingRun && !storageState.healthy)
+    return res.status(503).json({ error: "Service storage unavailable." });
   res.setHeader("X-Content-Type-Options", "nosniff");
   next();
 });
@@ -121,11 +124,12 @@ app.get("/api/workspace", (req, res) =>
       engine: "Playwright browser checks",
       activeRuns: browserCount(),
       ai: ai.status(),
+      storage: { healthy: storageState.healthy, durability: storageState.durability },
     },
   }),
 );
 app.get("/api/health", (req, res) =>
-  res.json({ status: "ok", activeRuns: browserCount() }),
+  res.status(storageState.healthy ? 200 : 503).json(storageState.healthy ? { status: "ok", activeRuns: browserCount() } : { status: "unavailable" }),
 );
 app.get("/api/auth/session", (req, res) =>
   res.json({ authenticated: true, hosted }),
@@ -184,6 +188,8 @@ app.delete("/api/environments/:id", (req, res) => {
     throw new Error("Keep the built-in demo environment.");
   if (db.schedules.some((s) => s.environmentId === req.params.id))
     throw new Error("Remove schedules using this environment first.");
+  if (db.knowledge.some((note) => note.environmentId === req.params.id))
+    throw new Error("Move or remove knowledge notes scoped to this environment first.");
   required(db.environments, req.params.id);
   db.environments = db.environments.filter((e) => e.id !== req.params.id);
   save();
@@ -242,6 +248,7 @@ function plannedCases(checks) {
 }
 app.put("/api/sessions/:id/plan", (req,res) => {
   const session = required(db.sessions,req.params.id);
+  if (session.agent || session.team) throw new Error("Duplicate the discovered tests into a plain session before editing its plan.");
   if (session.status !== "ready") throw new Error("Duplicate a completed session before changing its test plan.");
   const body = z.object({yaml:z.string().max(500000)}).parse(req.body);
   const manifest = manifestSchema.parse(YAML.parse(body.yaml,{maxAliasCount:0}));
@@ -253,6 +260,7 @@ app.put("/api/sessions/:id/plan", (req,res) => {
 app.post("/api/sessions/:id/duplicate", (req,res) => {
   const source = required(db.sessions,req.params.id);
   if (isRunning(source)) throw new Error("Wait for the active run to finish before duplicating.");
+  if (!source.cases.length) throw new Error("Discover at least one test case before duplicating this session.");
   const input = z.object({environmentId:text.optional(),name:text.max(120).optional()}).parse(req.body || {});
   const copy = newSession({name:input.name || (source.name.slice(0,113)+" · copy"),environmentId:input.environmentId || source.environmentId,mode:source.mode,brief:source.brief,expectedText:""});
   copy.cases = plannedCases(executableChecks(source.cases));
@@ -275,6 +283,7 @@ app.post("/api/sessions/:id/cancel", (req, res) => {
 });
 app.post("/api/sessions/:id/cases", (req, res) => {
   const session = required(db.sessions, req.params.id);
+  if (session.agent || session.team) throw new Error("Duplicate the discovered tests into a plain session before adding cases.");
   if (session.status !== "ready")
     throw new Error(
       "Cases can be added to a planned session. Create a new session to change a completed plan.",
@@ -308,6 +317,7 @@ app.post("/api/sessions/:id/cases", (req, res) => {
 });
 app.delete("/api/sessions/:id/cases/:caseId", (req, res) => {
   const session = required(db.sessions, req.params.id);
+  if (session.agent || session.team) throw new Error("Duplicate the discovered tests into a plain session before removing cases.");
   if (session.status !== "ready")
     throw new Error("Only planned cases can be removed.");
   required(session.cases, req.params.caseId);
@@ -445,6 +455,7 @@ app.post("/api/schedules", (req, res) => {
   required(db.environments, input.environmentId);
   const source = input.sourceSessionId ? required(db.sessions,input.sourceSessionId) : null;
   if (source && isRunning(source)) throw new Error("Wait for the source run to finish.");
+  if (source && !source.cases.length) throw new Error("Discover at least one test case before scheduling this suite.");
   const item = {
     ...(source ? {checks:executableChecks(source.cases),sourceName:source.name} : {}),
     ...input,
@@ -483,6 +494,7 @@ async function executeSchedule(schedule) {
   try {
   const previous = db.sessions.find(s => s.id === schedule.lastRunId);
   if (previous && isRunning(previous)) throw new Error("This schedule already has an active run.");
+  if (schedule.checks && !schedule.checks.length) throw new Error("This schedule has no test cases. Recreate it from a populated suite.");
   const session = newSession({name:schedule.name,environmentId:schedule.environmentId,mode:schedule.mode,brief:schedule.checks ? `Scheduled suite: ${schedule.sourceName}` : "Scheduled browser audit.",expectedText:""});
   if (schedule.checks) session.cases = plannedCases(schedule.checks);
   save();
@@ -537,6 +549,8 @@ if (!hosted && fs.existsSync("dist/index.html")) {
   );
 }
 app.use((error, req, res, next) => {
+  if (error.code?.startsWith("TRACE_STORAGE_"))
+    return res.status(503).json({ error: "Service storage unavailable." });
   const status = error.status || 400;
   res.status(status).json({
     error:
@@ -550,7 +564,7 @@ const server = app.listen(port, hosted ? "0.0.0.0" : "127.0.0.1", () =>
 );
 let ticking = false;
 const timer = setInterval(async () => {
-  if (ticking) return;
+  if (ticking || !storageState.healthy) return;
   ticking = true;
   try {
     for (const schedule of db.schedules) {
@@ -565,22 +579,29 @@ const timer = setInterval(async () => {
       try {
         await executeSchedule(schedule);
       } catch (error) {
+        if (!storageState.healthy) return;
         schedule.lastError = error.message;
       }
       try { schedule.nextRunAt = nextScheduleAt(schedule); }
       catch (error) { schedule.lastError = error.message; schedule.enabled = false; }
       save();
     }
+  } catch (error) {
+    // A persistence failure is latched and exposed by health; keep recovery reads available.
+    if (storageState.healthy) throw error;
   } finally {
     ticking = false;
   }
 }, 10000);
 async function shutdown() {
   clearInterval(timer);
-  for (const control of active.values()) {
+  const controls = [...active.values()];
+  // Abort model requests and queued team work before waiting for browser teardown.
+  for (const control of controls) {
     control.cancelled = true;
-    await control.browser?.close().catch(() => {});
+    control.abort?.();
   }
+  await Promise.allSettled(controls.map((control) => control.browser?.close()));
   server.close(() => process.exit(0));
 }
 process.on("SIGINT", shutdown);
