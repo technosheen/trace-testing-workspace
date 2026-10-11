@@ -177,3 +177,36 @@ test("missing credentials fail clearly and knowledge notes require opt-in", asyn
   assert.equal(JSON.parse(request.input).knowledge.length, 8);
   assert.equal(JSON.parse(request.input).knowledge[0].content.length, 500);
 });
+
+test("source-grounded journeys preserve action order and reject invented targets and unsafe actions", () => {
+  const supplied = {...input,brief:'Go to https://example.com/about, click "Back home", then expect "Everyday essentials". Selector: main'};
+  const journey = {name:"Return home",acceptance:"The supplied homepage text is visible",actions:[{action:"navigate",url:"https://example.com/about"},{action:"click",target:{role:"link",name:"Back home"}},{action:"assertText",target:{selector:"main"},value:"Everyday essentials"}]};
+  const plan = validatePlan({...draft,journeys:[journey]},supplied,[],environment);
+  assert.equal(plan.cases.at(-1).kind,"journey");
+  assert.deepEqual(plan.cases.at(-1).actions,journey.actions);
+  assert.equal(plan.cases.at(-1).status,"not_run");
+  for (const actions of [
+    [{action:"navigate",url:"https://invented.example/"},{action:"assertVisible",target:{selector:"main"}}],
+    [{action:"assertVisible",target:{selector:"#invented"}}],
+    [{action:"click",target:{role:"link",name:"Invented button"}},{action:"assertVisible",target:{selector:"main"}}],
+    [{action:"evaluate",value:"alert(1)"}],
+    [{action:"click",target:{selector:"main"}}],
+    Array(13).fill({action:"assertVisible",target:{selector:"main"}}),
+  ]) assert.throws(() => validatePlan({...draft,journeys:[{...journey,actions}]},supplied,[],environment),{status:502});
+  const envPlan = validatePlan({...draft,journeys:[{...journey,actions:[{action:"navigate",url:environment.url},{action:"assertUrl",value:environment.url}]}]},input,[],environment);
+  assert.equal(envPlan.cases.at(-1).actions[0].url,environment.url);
+});
+
+test("knowledge is scoped before limiting and provider schema requires journeys", async () => {
+  let request;
+  const planner=createAiPlanner({env,db:{},save(){},client:{responses:{async create(body){request=body;return response();}}}});
+  await planner.generate({...input,includeKnowledge:true},{...environment,id:"demo"},[
+    ...Array(10).fill({title:"Wrong environment",content:"Never include",environmentId:"other"}),
+    {title:"Global",content:"Useful terminology",category:"terminology"},
+    {title:"Scoped",content:"Demo rules",category:"rules",environmentId:"demo"},
+  ]);
+  const notes=JSON.parse(request.input).knowledge;
+  assert.deepEqual(notes.map(n=>n.title),["Global","Scoped"]);
+  assert.deepEqual(notes.map(n=>n.category),["terminology","rules"]);
+  assert.ok(request.text.format.schema.required.includes("journeys"));
+});

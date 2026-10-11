@@ -134,7 +134,7 @@ export function NewSession({
             />
             <small>
               {generation === "ai"
-                ? "AI drafts supported checks from your brief. Your brief is sent to Azure AI; the website is not visited until you run the checks."
+                ? "AI drafts checks and multi-step journeys from your brief. For journeys, supply exact URLs, target labels or selectors, and expected outcomes. Your brief is sent to Azure AI; the website is visited when you run the tests."
                 : "The brief stays with your report. The selected mode determines the automated checks."}
             </small>
           </label>
@@ -156,7 +156,7 @@ export function NewSession({
                   disabled={busy}
                   onChange={(e) => setIncludeKnowledge(e.target.checked)}
                 />
-                Include workspace knowledge notes in the AI draft
+                Include workspace and matching environment knowledge in the AI draft
               </label>
             </div>
           )}

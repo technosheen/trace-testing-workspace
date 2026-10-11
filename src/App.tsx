@@ -17,11 +17,11 @@ import {
 } from "./components/Forms";
 import {
   Environments,
-  KnowledgeBase,
   Library,
   Schedules,
   SettingsPage,
 } from "./components/WorkspacePages";
+import { KnowledgeWorkspace } from "./components/KnowledgeWorkspace";
 import { Dashboard } from "./components/Dashboard";
 import { TestEditor } from "./components/TestEditor";
 import { WorkspaceReports } from "./components/WorkspaceReports";
@@ -218,14 +218,13 @@ function WorkspaceApp({ onSignOut }: { onSignOut?: () => void }) {
             />
           )}{" "}
           {page === "knowledge" && (
-            <KnowledgeBase
+            <KnowledgeWorkspace
               items={data.knowledge}
-              onAdd={(body) =>
-                void act(
-                  () => request("/knowledge", "POST", body),
-                  "Knowledge note saved.",
-                )
-              }
+              environments={data.environments}
+              onSave={async (body, id) => Boolean(await act(
+                () => request(id ? `/knowledge/${id}` : "/knowledge", id ? "PATCH" : "POST", body),
+                "Knowledge note saved.", false,
+              ))}
               onDelete={(item) =>
                 confirm(
                   "Delete knowledge note?",

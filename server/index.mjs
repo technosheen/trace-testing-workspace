@@ -4,6 +4,7 @@ import fs from "node:fs";
 import { z } from "zod";
 import YAML from "yaml";
 import { manifestSchema } from "./manifest.mjs";
+import { normalizeSchedule, nextScheduleAt } from "./scheduling.mjs";
 import { db, save, id, now, event, dataDir } from "./store.mjs";
 import { planCases, checkKinds } from "./checks.mjs";
 import { validateTarget } from "./policy.mjs";
@@ -369,17 +370,31 @@ app.post("/api/import", async (req, res) => {
   save();
   res.status(201).json(session);
 });
+const knowledgeInput = z.object({
+  title: text.max(120),
+  content: z.string().trim().min(1).max(10000),
+  category: z.enum(["general", "terminology", "rules", "flows"]).default("general"),
+  environmentId: z.string().optional(),
+});
+function parseKnowledge(body) {
+  const input = knowledgeInput.parse(body);
+  if (input.environmentId) required(db.environments, input.environmentId);
+  else delete input.environmentId;
+  return input;
+}
 app.post("/api/knowledge", (req, res) => {
-  const input = z
-    .object({
-      title: text.max(120),
-      content: z.string().trim().min(1).max(10000),
-    })
-    .parse(req.body);
-  const item = { ...input, id: id(), createdAt: now() };
+  const item = { ...parseKnowledge(req.body), id: id(), createdAt: now() };
   db.knowledge.unshift(item);
   save();
   res.status(201).json(item);
+});
+app.patch("/api/knowledge/:id", (req, res) => {
+  const item = required(db.knowledge, req.params.id);
+  const input = parseKnowledge(req.body);
+  delete item.environmentId;
+  Object.assign(item, input, { updatedAt: now() });
+  save();
+  res.json(item);
 });
 app.delete("/api/knowledge/:id", (req, res) => {
   required(db.knowledge, req.params.id);
@@ -393,21 +408,25 @@ app.post("/api/schedules", (req, res) => {
       name: text.max(120),
       environmentId: text,
       mode: z.enum(["smoke", "accessibility", "navigation"]),
-      intervalHours: z.number().int().min(1).max(168),
+      intervalHours: z.number().int().min(1).max(168).optional(),
+      scheduleType: z.enum(["interval", "cron"]).optional(),
+      cronExpression: z.string().max(200).optional(),
+      timeZone: z.string().max(100).optional(),
       sourceSessionId: text.optional(),
     })
     .parse(req.body);
+  const timing = normalizeSchedule(input);
+  const nextRunAt = nextScheduleAt(timing);
   required(db.environments, input.environmentId);
   const source = input.sourceSessionId ? required(db.sessions,input.sourceSessionId) : null;
   if (source && isRunning(source)) throw new Error("Wait for the source run to finish.");
   const item = {
     ...(source ? {checks:executableChecks(source.cases),sourceName:source.name} : {}),
     ...input,
+    ...timing,
     id: id(),
     enabled: true,
-    nextRunAt: new Date(
-      Date.now() + input.intervalHours * 3600000,
-    ).toISOString(),
+    nextRunAt,
     createdAt: now(),
     lastRunId: null,
   };
@@ -417,10 +436,18 @@ app.post("/api/schedules", (req, res) => {
 });
 app.patch("/api/schedules/:id", (req, res) => {
   const schedule = required(db.schedules, req.params.id);
-  Object.assign(schedule, z.object({ enabled: z.boolean() }).parse(req.body));
-  schedule.nextRunAt = new Date(
-    Date.now() + schedule.intervalHours * 3600000,
-  ).toISOString();
+  const patch = z.object({
+    enabled: z.boolean().optional(),
+    intervalHours: z.number().int().min(1).max(168).optional(),
+    scheduleType: z.enum(["interval", "cron"]).optional(),
+    cronExpression: z.string().max(200).optional(),
+    timeZone: z.string().max(100).optional(),
+  }).strict().parse(req.body);
+  const timing = normalizeSchedule({...schedule, ...patch});
+  const nextRunAt = nextScheduleAt(timing);
+  Object.assign(schedule, patch, timing, {nextRunAt});
+  if (timing.scheduleType === "interval") {delete schedule.cronExpression; delete schedule.timeZone;}
+  else delete schedule.intervalHours;
   save();
   res.json(schedule);
 });
@@ -515,9 +542,8 @@ const timer = setInterval(async () => {
       } catch (error) {
         schedule.lastError = error.message;
       }
-      schedule.nextRunAt = new Date(
-        Date.now() + schedule.intervalHours * 3600000,
-      ).toISOString();
+      try { schedule.nextRunAt = nextScheduleAt(schedule); }
+      catch (error) { schedule.lastError = error.message; schedule.enabled = false; }
       save();
     }
   } finally {

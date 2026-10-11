@@ -100,7 +100,10 @@ export type Schedule = {
   name: string;
   environmentId: string;
   mode: string;
-  intervalHours: number;
+  intervalHours?: number;
+  scheduleType?: "interval" | "cron";
+  cronExpression?: string;
+  timeZone?: string;
   enabled: boolean;
   nextRunAt: string;
   lastRunId?: string;
@@ -110,6 +113,9 @@ export type Schedule = {
   checks?: TestCase[];
 };
 export type Knowledge = {
+  category?: string;
+  environmentId?: string;
+  updatedAt?: string;
   id: string;
   title: string;
   content: string;

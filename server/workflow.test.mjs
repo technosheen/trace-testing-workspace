@@ -68,6 +68,17 @@ test(
     }
     try {
       await launch();
+      const note = await api("/knowledge", "POST", { title: "Product flow", content: "Select Everyday essentials", category: "flows", environmentId: "demo" });
+      assert.equal(note.environmentId, "demo");
+      assert.equal(note.category, "flows");
+      const editedNote = await api(`/knowledge/${note.id}`, "PATCH", { title: "Shared terminology", content: "Everyday essentials", category: "terminology" });
+      assert.equal(editedNote.environmentId, undefined);
+      assert.ok(editedNote.updatedAt);
+      assert.equal(editedNote.id, note.id);
+      const invalidScope = await fetch(`${base}/api/knowledge`, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({title:"Invalid",content:"Context",environmentId:"unknown"}) });
+      assert.equal(invalidScope.status, 404);
+      const invalidCategory = await fetch(`${base}/api/knowledge/${note.id}`, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({title:"Invalid",content:"Context",category:"unsupported"}) });
+      assert.equal(invalidCategory.status, 400);
       let session = await api("/sessions", "POST", {
         name: "Integration audit",
         environmentId: "demo",

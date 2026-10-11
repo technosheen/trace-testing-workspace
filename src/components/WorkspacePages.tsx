@@ -249,6 +249,16 @@ export function KnowledgeBase({
     </>
   );
 }
+function scheduleLabel(s: Schedule) {
+  if (s.scheduleType !== "cron") return `Every ${s.intervalHours} hours`;
+  const [minute, hour, day, month, weekday] = (s.cronExpression || "").split(" ");
+  if (/^\d+$/.test(minute) && /^\d+$/.test(hour) && day === "*" && month === "*") {
+    const at = `${Number(hour) % 12 || 12}:${minute.padStart(2, "0")} ${Number(hour) < 12 ? "AM" : "PM"}`;
+    if (weekday === "*") return `Daily at ${at} · ${s.timeZone}`;
+    if (weekday === "1-5") return `Weekdays at ${at} · ${s.timeZone}`;
+  }
+  return `Calendar schedule · ${s.timeZone}`;
+}
 export function Schedules({
   sessions, onRun,
   items,
@@ -272,6 +282,9 @@ export function Schedules({
   const [environmentId, setEnvironment] = useState(environments[0]?.id || "");
   const [mode, setMode] = useState("smoke");
   const [hours, setHours] = useState(24);
+  const [scheduleType, setScheduleType] = useState("interval");
+  const [cronExpression, setCronExpression] = useState("0 9 * * 1-5");
+  const [timeZone, setTimeZone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
   const [sourceSessionId, setSource] = useState("");
   return (
     <>
@@ -312,12 +325,13 @@ export function Schedules({
                 <h3>{s.name}</h3>
                 <p>
                   {environments.find((e) => e.id === s.environmentId)?.name} ·
-                  Every {s.intervalHours} hours
+                  {scheduleLabel(s)}
                 </p>
+                {s.scheduleType === "cron" && <small>Cron: {s.cronExpression}</small>}
                 {s.sourceName && <p>{s.sourceName} · {s.checks?.length || 0} saved tests</p>}
                 <small>
                   {s.enabled
-                    ? `Next run: ${new Date(s.nextRunAt).toLocaleString()}`
+                    ? `Next run: ${new Date(s.nextRunAt).toLocaleString([], s.scheduleType === "cron" ? {timeZone: s.timeZone, timeZoneName: "short"} : undefined)}`
                     : "Paused"}
                   {s.lastError && (
                     <span className="inline-error"> · {s.lastError}</span>
@@ -357,7 +371,7 @@ export function Schedules({
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              onAdd({ name, environmentId, mode, intervalHours: hours, ...(sourceSessionId ? {sourceSessionId} : {}) });
+              onAdd({ name, environmentId, mode, scheduleType, ...(scheduleType === "cron" ? {cronExpression,timeZone} : {intervalHours:hours}), ...(sourceSessionId ? {sourceSessionId} : {}) });
               setShow(false);
               setName("");
             }}
@@ -401,7 +415,9 @@ export function Schedules({
                     ))}
                   </select>
                 </label>
-                <label>
+                <label>Schedule type<select value={scheduleType} onChange={e => setScheduleType(e.target.value)}><option value="interval">Repeat at intervals</option><option value="cron">Calendar schedule (cron)</option></select></label>
+              </div>
+              {scheduleType === "interval" ? <label>
                   Repeat
                   <select
                     value={hours}
@@ -412,8 +428,10 @@ export function Schedules({
                     <option value={24}>Daily</option>
                     <option value={168}>Weekly</option>
                   </select>
-                </label>
-              </div>
+                </label> : <>
+                <label>Cron expression<input required maxLength={200} value={cronExpression} onChange={e => setCronExpression(e.target.value)} placeholder="0 9 * * 1-5"/><small>Minute · hour · day · month · weekday. Example: 0 9 * * 1-5 runs at 9 AM on weekdays. Choose one minute value; runs are at least an hour apart.</small></label>
+                <label>Time zone<input required maxLength={100} value={timeZone} onChange={e => setTimeZone(e.target.value)} placeholder="America/New_York"/><small>Use an IANA time zone. Missing daylight-saving times are skipped; repeated hours may run twice.</small></label>
+              </>}
             </div>
             <div className="dialog-foot">
               <button
