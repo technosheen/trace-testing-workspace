@@ -21,7 +21,7 @@
       "value": "6253f10b-3c4b-4af5-9c3d-b5158e517498"
     },
     "containerImage": {
-      "value": "trace9636registry.azurecr.io/trace-app@sha256:8dc32010ed1c3ef9d1a65368f633b5f1217501224f2c53ae6a51c6d255d85048"
+      "value": "trace9636registry.azurecr.io/trace-app@sha256:f1b21deea9ed6caf4921ea0388e83f2d11eac4e7c507a95f6b15d74a5d63b3b8"
     },
     "aiEndpoint": {
       "value": "https://seantmahoney92-3750-resource.cognitiveservices.azure.com/"
