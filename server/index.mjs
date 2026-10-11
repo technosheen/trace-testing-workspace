@@ -206,6 +206,13 @@ app.patch("/api/sessions/:id", (req, res) => {
   save();
   res.json(session);
 });
+app.post("/api/sessions/:id/archive", (req,res) => {
+  const session = required(db.sessions, req.params.id);
+  if (isRunning(session)) throw new Error("Wait for the active run to finish.");
+  const {archived} = z.object({archived:z.boolean()}).strict().parse(req.body);
+  if (archived) session.archivedAt = now(); else delete session.archivedAt;
+  save(); res.json(session);
+});
 function executableChecks(cases) {
   return cases.map(c => ({kind:c.kind,name:c.name,acceptance:c.acceptance,
     ...(c.value ? {value:c.value} : {}),
@@ -374,6 +381,7 @@ const knowledgeInput = z.object({
   title: text.max(120),
   content: z.string().trim().min(1).max(10000),
   category: z.enum(["general", "terminology", "rules", "flows"]).default("general"),
+  enabled: z.boolean().default(true),
   environmentId: z.string().optional(),
 });
 function parseKnowledge(body) {

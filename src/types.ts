@@ -61,6 +61,7 @@ export type Run = {
   findings: Finding[];
 };
 export type Session = {
+  archivedAt?: string;
   generation?: {
     provider: string;
     model: string;
@@ -113,6 +114,7 @@ export type Schedule = {
   checks?: TestCase[];
 };
 export type Knowledge = {
+  enabled?: boolean;
   category?: string;
   environmentId?: string;
   updatedAt?: string;

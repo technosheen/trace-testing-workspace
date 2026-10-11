@@ -1,445 +1,73 @@
 import { useState } from "react";
-import {
-  ArrowLeft,
-  Play,
-  Download,
-  Square,
-  Plus,
-  SearchCheck,
-  Bug,
-  CheckCircle2,
-  ArrowUpRight,
-  Clock3,
-  FileText,
-  Activity,
-  History,
-  ShieldCheck,
-  Trash2,
-  Copy,
-  ExternalLink,
-  ChevronRight,
-} from "lucide-react";
+import { ArrowLeft, Play, Download, Square, Plus, SearchCheck, Bug, CheckCircle2, ArrowUpRight, Clock3, FileText, Activity, History, ShieldCheck, Trash2, Copy, ChevronRight, Circle, AlertCircle } from "lucide-react";
 import type { Finding, Session, TestCase } from "../types";
 import { counts, date } from "../api";
-import {
-  Dialog,
-  Empty,
-  EvidenceImage,
-  SearchBox,
-  Status,
-  CheckList,
-} from "./ui";
-export function SessionDetail({
-  session,
-  onBack,
-  onRun,
-  onCancel,
-  onCase,
-  onFinding,
-  onAddCase,
-  onRemoveCase,
-  onEdit, onDuplicate, initialRun,
-}: {
-  session: Session;
-  initialRun?: string;
-  onEdit: () => void;
-  onDuplicate: () => void;
-  onBack: () => void;
-  onRun: () => void;
-  onCancel: () => void;
-  onCase: (c: TestCase) => void;
-  onFinding: (f: Finding) => void;
-  onAddCase: () => void;
-  onRemoveCase: (id: string) => void;
+import { Dialog, Empty, EvidenceImage, SearchBox, Status, CheckList } from "./ui";
+import "./newSessionReference.css";
+export function SessionDetail({ session, onBack, onRun, onCancel, onCase, onFinding, onAddCase, onRemoveCase, onEdit, onDuplicate, initialRun }: {
+  session: Session; initialRun?: string; onEdit: () => void; onDuplicate: () => void; onBack: () => void; onRun: () => void; onCancel: () => void; onCase: (c: TestCase) => void; onFinding: (f: Finding) => void; onAddCase: () => void; onRemoveCase: (id: string) => void;
 }) {
-  const [tab, setTab] = useState("cases");
+  const [tab, setTab] = useState(initialRun ? "history" : "cases");
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [run, setRun] = useState(initialRun || "latest");
-  const archived = session.history.find((r) => r.runId === run);
+  const [menu, setMenu] = useState(false);
+  const archived = session.history.find(r => r.runId === run);
   const cases = archived?.cases || session.cases;
   const findings = archived?.findings || session.findings;
   const n = counts(cases);
+  const notRun = cases.filter(c => c.status === "not_run").length;
   const active = ["running", "cancelling"].includes(session.status);
-  const visible = cases.filter(
-    (c) =>
-      (filter === "all" || c.status === filter) &&
-      c.name.toLowerCase().includes(search.toLowerCase()),
-  );
-  const visibleFindings = findings.filter(
-    (f) =>
-      (filter === "all" ||
-        (filter === "OPEN" && f.triage === "OPEN") ||
-        (filter === "ACCEPTED" && f.triage === "ACCEPTED") ||
-        (filter === "closed" && !["OPEN", "ACCEPTED"].includes(f.triage))) &&
-      f.name.toLowerCase().includes(search.toLowerCase()),
-  );
-  function changeTab(v: string) {
-    setTab(v);
-    setFilter("all");
-    setSearch("");
-  }
-  return (
-    <>
-      <button className="back-link" onClick={onBack}>
-        <ArrowLeft size={16} />
-        All sessions
-      </button>
-      <div className="page-heading detail-heading">
-        <div>
-          <div className="title-line">
-            <h1>{session.name}</h1>
-            <Status value={archived?.status || session.status} />
-          </div>
-          <p>
-            <span>{session.environmentName}</span>
-            <span className="separator">·</span>
-            <a
-              href={session.environmentId === "demo" ? "/demo" : session.url}
-              target="_blank"
-              rel="noreferrer"
-            >
-              {session.url}
-              <ArrowUpRight size={13} />
-            </a>
-          </p>
+  const visible = cases.filter(c => (filter === "all" || c.status === filter) && c.name.toLowerCase().includes(search.toLowerCase()));
+  const visibleFindings = findings.filter(f => (filter === "all" || (filter === "OPEN" && f.triage === "OPEN") || (filter === "ACCEPTED" && f.triage === "ACCEPTED") || (filter === "closed" && !["OPEN", "ACCEPTED"].includes(f.triage))) && f.name.toLowerCase().includes(search.toLowerCase()));
+  function changeTab(value: string) { setTab(value); setFilter("all"); setSearch(""); }
+  const events = session.activity.slice().reverse();
+  return <section className="reference-session">
+    <header className="reference-session-header">
+      <button className="icon-btn reference-back" aria-label="All sessions" onClick={onBack}><ArrowLeft size={16}/></button>
+      <FileText size={16} className="reference-session-mark"/><h1 title={session.name}>{session.name}</h1>
+      <span className="reference-verified">{n.passed}/{cases.length} passed</span>
+      {active ? <button className="btn compact" disabled={session.status === "cancelling"} onClick={onCancel}><Square size={13}/>{session.status === "cancelling" ? "Stopping…" : "Stop"}</button> : <button className="btn compact" onClick={onRun}><Play size={13}/>{session.runId ? "Run again" : "Run checks"}</button>}
+      <div className="reference-menu-wrap"><button className="icon-btn" aria-label="Session actions" aria-expanded={menu} onClick={() => setMenu(!menu)}>•••</button>{menu && <div className="reference-session-menu">
+        {session.status === "ready" && <button onClick={() => { setMenu(false); onEdit(); }}>Edit tests</button>}
+        <button disabled={active} onClick={() => { setMenu(false); onDuplicate(); }}><Copy size={14}/>Duplicate session</button>
+        <a href={`/api/sessions/${session.id}/export?format=yaml`}><Download size={14}/>Export tests</a>
+        <a href={`/api/sessions/${session.id}/export?format=json`}><Download size={14}/>JSON report</a>
+      </div>}</div>
+    </header>
+    <div className="reference-session-split">
+      <div className="reference-conversation">
+        <div className="reference-conversation-scroll">
+          <div className="reference-session-context"><span>{session.environmentName}</span><a href={session.environmentId === "demo" ? "/demo" : session.url} target="_blank" rel="noreferrer">{session.url}<ArrowUpRight size={12}/></a><Status value={archived?.status || session.status}/></div>
+          {session.brief && <div className="reference-brief"><p>{session.brief}</p></div>}
+          {events.length > 0 && <details className="reference-log"><summary><Activity size={14}/>{events.length} activity events <span>{date(session.updatedAt)}</span></summary><div>{events.slice(0,12).map(item => <div className="reference-log-event" key={item.id}><strong>{item.role}</strong><time>{new Date(item.at).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"})}</time><p>{item.message}</p></div>)}</div></details>}
+          {session.generation && <div className="reference-ai-summary"><p>{session.generation.summary}</p><details><summary>Draft limitations · {session.generation.provider}</summary><ul>{session.generation.limitations.map((text,i) => <li key={i}>{text}</li>)}</ul></details></div>}
+          {!session.generation && <p className="reference-plan-summary">{cases.length} test cases in this session. {session.runId ? `${n.passed} passed, ${n.issues} issues found, and ${n.blocked} blocked.` : "Review the preconditions, steps, and acceptance criteria before running. No checks have run yet."}</p>}
+          <div className="reference-status-card"><header>Session status<button onClick={() => changeTab("cases")}>View test cases <ArrowUpRight size={12}/></button></header><div className="reference-status-grid"><div><span>Passed cases</span><strong>{n.passed}</strong></div><div><span>Issues found</span><strong>{n.issues}</strong></div><div><span>Not run / blocked</span><strong>{notRun + n.blocked}</strong></div></div><button className="reference-bug-total" onClick={() => changeTab("findings")}><span>Bugs <ArrowUpRight size={12}/></span><strong>{findings.length}</strong></button></div>
+          <div className="reference-execution-policy"><ShieldCheck size={14}/>Read-only browser checks · No form submissions</div>
+          {session.trace && <a className="reference-trace-link" href={session.trace}><Download size={14}/>Download browser trace</a>}
+          <p className="reference-updated">Updated {date(session.updatedAt)}</p>
         </div>
-        <div className="heading-actions">
-          {session.status === "ready" && <button className="btn" onClick={onEdit}>Edit tests</button>}
-          <button className="btn" disabled={active} onClick={onDuplicate}><Copy size={16} /> Duplicate</button>
-          <a
-            className="btn"
-            href={`/api/sessions/${session.id}/export?format=yaml`}
-          >
-            <Download size={16} />
-            Export tests
-          </a>
-          {active ? (
-            <button
-              className="btn danger-outline"
-              disabled={session.status === "cancelling"}
-              onClick={onCancel}
-            >
-              <Square size={14} />
-              {session.status === "cancelling" ? "Stopping…" : "Stop run"}
-            </button>
-          ) : (
-            <button className="btn primary" onClick={onRun}>
-              <Play size={16} />
-              {session.runId ? "Run again" : "Run checks"}
-            </button>
-          )}
+        <div className="reference-session-bottom"><span>{active ? "Browser checks are running. Results appear as each check completes." : session.status === "ready" ? "Your test plan is ready to review and run." : "Review the results or start another run."}</span><div>{session.status === "ready" && <button className="btn compact" onClick={onEdit}>Edit tests</button>}<a className="btn compact" href={`/api/sessions/${session.id}/export?format=yaml`}><Download size={14}/>Export</a></div></div>
+      </div>
+      <div className="reference-results">
+        <div className="reference-result-tabs" role="tablist" aria-label="Session views">{[["activity","Activity",session.activity.length,Activity],["cases","Test cases",cases.length,SearchCheck],["findings","Bugs",findings.length,Bug],["history","History",session.history.length,History]].map(([id,label,total,Icon]) => { const I = Icon as typeof Activity; return <button key={String(id)} role="tab" aria-selected={tab===id} className={tab===id?"active":""} onClick={() => changeTab(String(id))}><I size={14}/>{String(label)}<span>{String(total)}</span></button>; })}</div>
+        {archived && <div className="reference-archived">Viewing a preserved run. <button onClick={() => setRun("latest")}>Return to latest</button></div>}
+        <div className="reference-result-body">
+          {tab === "cases" && <>
+            <SearchBox value={search} onChange={setSearch} placeholder="Search test cases..."/>
+            <div className="reference-outcome-filters">{[["all","All outcomes",cases.length],["running","Running",cases.filter(c=>c.status==="running").length],["issues_found","Issues",n.issues],["blocked","Blocked",n.blocked],["passed","Passed",n.passed],["not_run","Not run",notRun]].map(([value,label,total]) => <button key={String(value)} className={filter===value?"active":""} onClick={() => setFilter(String(value))}>{String(label)}<span>{total}</span></button>)}</div>
+            <div className="reference-showing">Showing {visible.length} of {cases.length} test cases{session.status === "ready" && !archived && <button onClick={onAddCase}><Plus size={13}/>Add case</button>}</div>
+            <div className="reference-case-list">{visible.map(c => <div className="reference-case-row" key={c.id}><button className="reference-case-main" onClick={() => onCase(c)}><span className={`reference-case-symbol ${c.status}`}>{c.status === "passed" ? <CheckCircle2 size={15}/> : c.status === "issues_found" ? <AlertCircle size={15}/> : <Circle size={15}/>}</span><div><strong>{c.name}</strong><p>{c.result?.summary || c.acceptance}</p></div></button>{session.status === "ready" && !archived && <button className="icon-btn reference-remove" aria-label={`Remove ${c.name}`} onClick={() => onRemoveCase(c.id)}><Trash2 size={13}/></button>}</div>)}</div>
+            {!visible.length && <Empty icon={<SearchCheck size={24}/>} title="No matching test cases" text="Try another filter or search."/>}
+          </>}
+          {tab === "findings" && <><SearchBox value={search} onChange={setSearch} placeholder="Search bugs..."/><div className="reference-outcome-filters">{[["all","All bugs"],["OPEN","To review"],["ACCEPTED","Accepted"],["closed","Closed"]].map(([value,label]) => <button key={value} className={filter===value?"active":""} onClick={() => setFilter(value)}>{label}</button>)}</div><div className="reference-case-list">{visibleFindings.map(f => <button className="reference-finding-row" key={f.id} onClick={() => onFinding(f)}><Bug size={16}/><div><strong>{f.name}</strong><p>{f.actual}</p><small>{f.reproduction.replaceAll("_"," ")} · {f.triage.toLowerCase().replaceAll("_"," ")}</small></div><ChevronRight size={14}/></button>)}</div>{!visibleFindings.length && <Empty icon={<Bug size={24}/>} title="No bugs in this view" text={session.runId ? "Review test cases for blocked coverage." : "Run checks to collect browser evidence."}/>}</>}
+          {tab === "activity" && <><p className="reference-panel-intro">Actual planner, browser verifier, and reviewer events.</p>{events.map(item => <div className="reference-activity-event" key={item.id}><Activity size={14}/><div><header><strong>{item.role}</strong><time>{date(item.at)}</time></header><p>{item.message}</p></div></div>)}{!events.length && <Empty icon={<Activity size={24}/>} title="No activity yet" text="Events will appear when checks run."/>}</>}
+          {tab === "history" && <><p className="reference-panel-intro">Review results preserved from previous runs.</p><button className={`reference-history-row ${run === "latest" ? "selected" : ""}`} onClick={() => setRun("latest")}><History size={16}/><div><strong>Latest run</strong><span>{date(session.updatedAt)}</span></div><Status value={session.status}/></button>{session.history.slice().reverse().map((r,i) => <button key={r.runId} className={`reference-history-row ${run===r.runId?"selected":""}`} onClick={() => {setRun(r.runId); changeTab("cases");}}><History size={16}/><div><strong>Previous run {session.history.length-i}</strong><span>{date(r.at)} · {r.cases.length} cases</span></div><Status value={r.status}/></button>)}{!session.history.length && <p className="reference-panel-intro">Previous runs will appear after this session is rerun.</p>}</>}
         </div>
       </div>
-      {session.generation && (
-        <div className="ai-plan-note">
-          <strong>AI draft · {session.generation.provider}</strong>
-          <p>{session.generation.summary}</p>
-          <ul>
-            {session.generation.limitations.map((text, i) => (
-              <li key={i}>{text}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-      <div className="report-summary">
-        <div>
-          <span className="summary-icon">
-            <SearchCheck size={20} />
-          </span>
-          <strong>{cases.length}</strong>
-          <span>Test cases</span>
-        </div>
-        <div>
-          <span className="summary-icon green">
-            <CheckCircle2 size={20} />
-          </span>
-          <strong>{n.passed}</strong>
-          <span>Passed</span>
-        </div>
-        <div>
-          <span className="summary-icon rose">
-            <Bug size={20} />
-          </span>
-          <strong>{findings.length}</strong>
-          <span>Findings</span>
-        </div>
-        <div>
-          <span className="summary-icon amber">
-            <Clock3 size={20} />
-          </span>
-          <strong>{n.blocked + n.pending}</strong>
-          <span>{n.pending ? "Not verified" : "Blocked"}</span>
-        </div>
-      </div>
-      {session.brief && (
-        <div className="session-brief">
-          <FileText size={17} />
-          <p>{session.brief}</p>
-        </div>
-      )}
-      <div className="execution-note">
-        <ShieldCheck size={15} />
-        <span>
-          Read-only browser checks · Independent reproduction · No form
-          submissions
-        </span>
-        {session.history.length > 0 && (
-          <label className="run-select">
-            <History size={14} />
-            <select
-              aria-label="Run history"
-              value={run}
-              onChange={(e) => setRun(e.target.value)}
-            >
-              <option value="latest">Latest run</option>
-              {session.history
-                .slice()
-                .reverse()
-                .map((r, i) => (
-                  <option key={r.runId} value={r.runId}>
-                    Previous run {session.history.length - i} · {date(r.at)}
-                  </option>
-                ))}
-            </select>
-          </label>
-        )}
-      </div>
-      <div
-        className="detail-tabs tabs"
-        role="tablist"
-        aria-label="Session views"
-      >
-        {[
-          ["cases", "Test cases", cases.length],
-          ["findings", "Findings", findings.length],
-          ["activity", "Activity", session.activity.length],
-        ].map(([id, label, number]) => (
-          <button
-            key={id}
-            role="tab"
-            aria-selected={tab === id}
-            className={tab === id ? "active" : ""}
-            onClick={() => changeTab(String(id))}
-          >
-            {label}
-            <span className="tab-count">{number}</span>
-          </button>
-        ))}
-      </div>
-      {archived && (
-        <div className="archived-note">
-          Viewing a preserved run. Review actions are available on the latest
-          run.
-        </div>
-      )}
-      {tab === "cases" && (
-        <>
-          <div className="filter-toolbar">
-            <div className="chips">
-              {[
-                ["all", "All cases"],
-                ["passed", "Passed"],
-                ["issues_found", "Issues"],
-                ["blocked", "Blocked"],
-                ["not_run", "Not run"],
-              ].map(([v, label]) => (
-                <button
-                  key={v}
-                  className={filter === v ? "active" : ""}
-                  onClick={() => setFilter(v)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <div className="toolbar-right">
-              <SearchBox
-                value={search}
-                onChange={setSearch}
-                placeholder="Search cases..."
-              />
-              {session.status === "ready" && (
-                <button className="btn compact" onClick={onAddCase}>
-                  <Plus size={16} />
-                  Add case
-                </button>
-              )}
-            </div>
-          </div>
-          <div className="case-list">
-            {visible.map((c, i) => (
-              <div className="case-row" key={c.id}>
-                <span className="case-index">
-                  {String(i + 1).padStart(2, "0")}
-                </span>
-                <button className="case-title" onClick={() => onCase(c)}>
-                  <strong>{c.name}</strong>
-                  <span>{c.result?.summary || c.acceptance}</span>
-                </button>
-                <Status value={c.status} />
-                <span className="case-duration">
-                  {c.durationMs != null
-                    ? `${(c.durationMs / 1000).toFixed(1)}s`
-                    : "—"}
-                </span>
-                {session.status === "ready" ? (
-                  <button
-                    className="icon-btn"
-                    aria-label={`Remove ${c.name}`}
-                    onClick={() => onRemoveCase(c.id)}
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                ) : (
-                  <button
-                    className="icon-btn"
-                    aria-label={`Open ${c.name}`}
-                    onClick={() => onCase(c)}
-                  >
-                    <ChevronRight size={17} />
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-          {!visible.length && (
-            <Empty
-              icon={<SearchCheck size={28} />}
-              title="No matching test cases"
-              text="Try another filter or search."
-            />
-          )}
-        </>
-      )}
-      {tab === "findings" && (
-        <>
-          <div className="filter-toolbar">
-            <div className="chips">
-              {[
-                ["all", "All findings"],
-                ["OPEN", "To review"],
-                ["ACCEPTED", "Accepted"],
-                ["closed", "Closed"],
-              ].map(([v, label]) => (
-                <button
-                  key={v}
-                  className={filter === v ? "active" : ""}
-                  onClick={() => setFilter(v)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <SearchBox
-              value={search}
-              onChange={setSearch}
-              placeholder="Search findings..."
-            />
-          </div>
-          {visibleFindings.map((f) => (
-            <button
-              className="finding-row"
-              key={f.id}
-              onClick={() => onFinding(f)}
-            >
-              <div className="finding-icon">
-                <Bug size={19} />
-              </div>
-              <div className="finding-text">
-                <strong>{f.name}</strong>
-                <p>{f.actual}</p>
-                <div className="finding-meta">
-                  <span className={`repro-label ${f.reproduction}`}>
-                    {f.reproduction === "reproduced" ? (
-                      <CheckCircle2 size={13} />
-                    ) : (
-                      <Clock3 size={13} />
-                    )}{" "}
-                    {f.reproduction.replaceAll("_", " ")}
-                  </span>
-                  <span>
-                    {f.triage === "OPEN"
-                      ? "To review"
-                      : f.triage.toLowerCase().replaceAll("_", " ")}
-                  </span>
-                </div>
-              </div>
-              <ChevronRight size={18} />
-            </button>
-          ))}
-          {!visibleFindings.length && (
-            <Empty
-              icon={<Bug size={28} />}
-              title={
-                session.status === "ready"
-                  ? "Findings will appear here"
-                  : "No findings in this view"
-              }
-              text={
-                session.status === "ready"
-                  ? "Run the planned checks to collect evidence and independently reproduce issues."
-                  : "Try another filter, or review the test cases for blocked coverage."
-              }
-            />
-          )}
-        </>
-      )}
-      {tab === "activity" && (
-        <>
-          <div className="activity-intro">
-            <Activity size={17} />
-            <span>
-              Live events from the planner, browser verifier, reproducer, and
-              reviewer.
-            </span>
-          </div>
-          <div className="timeline">
-            {session.activity
-              .slice()
-              .reverse()
-              .map((item) => (
-                <div className="timeline-event" key={item.id}>
-                  <div className={`timeline-dot ${item.role.toLowerCase()}`} />
-                  <div>
-                    <div className="timeline-heading">
-                      <strong>{item.role}</strong>
-                      <time>
-                        {new Date(item.at).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                          second: "2-digit",
-                        })}
-                      </time>
-                    </div>
-                    <p>{item.message}</p>
-                  </div>
-                </div>
-              ))}
-          </div>
-        </>
-      )}
-      <div className="report-footer">
-        <span>
-          {session.runId
-            ? `Updated ${date(session.updatedAt)}`
-            : "Your plan is ready. Run checks to collect real browser evidence."}
-        </span>
-        <div>
-          {session.trace && (
-            <a href={session.trace}>
-              <Download size={14} />
-              Browser trace
-            </a>
-          )}
-          <a href={`/api/sessions/${session.id}/export?format=json`}>
-            <Download size={14} />
-            JSON report
-          </a>
-        </div>
-      </div>
-    </>
-  );
+    </div>
+  </section>;
 }
 export function CaseDetail({
   item,

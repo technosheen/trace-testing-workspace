@@ -226,7 +226,7 @@ export function createAiPlanner({
       );
     const knowledge = input.includeKnowledge
       ? allKnowledge
-          .filter(n => !n.environmentId || n.environmentId === environment.id)
+          .filter(n => n.enabled !== false && (!n.environmentId || n.environmentId === environment.id))
           .slice(0, 8)
           .map((n) => ({
             title: n.title.slice(0, 120),

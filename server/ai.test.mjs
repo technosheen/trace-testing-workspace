@@ -202,6 +202,7 @@ test("knowledge is scoped before limiting and provider schema requires journeys"
   const planner=createAiPlanner({env,db:{},save(){},client:{responses:{async create(body){request=body;return response();}}}});
   await planner.generate({...input,includeKnowledge:true},{...environment,id:"demo"},[
     ...Array(10).fill({title:"Wrong environment",content:"Never include",environmentId:"other"}),
+    ...Array(10).fill({title:"Disabled",content:"Never include",enabled:false}),
     {title:"Global",content:"Useful terminology",category:"terminology"},
     {title:"Scoped",content:"Demo rules",category:"rules",environmentId:"demo"},
   ]);

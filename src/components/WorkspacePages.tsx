@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   Laptop,
   ExternalLink,
+  MoreHorizontal,
 } from "lucide-react";
 import type {
   Environment,
@@ -26,6 +27,7 @@ import type {
 import { date } from "../api";
 import { Dialog, Empty, SearchBox, Status } from "./ui";
 import { modes } from "./Forms";
+import "./ReferencePages.css";
 export function PageHeading({
   title,
   text,
@@ -59,80 +61,17 @@ export function Environments({
   onTest: () => void;
 }) {
   return (
-    <>
-      <PageHeading
-        title="Environments"
-        text="The websites your browser checks run against."
-        action={
-          <button className="btn primary" onClick={onAdd}>
-            <Plus size={17} />
-            Add environment
-          </button>
-        }
-      />
-      <div className="environment-list">
-        {items.map((env) => (
-          <article className="environment-row" key={env.id}>
-            <div className="environment-icon">
-              <Box size={25} strokeWidth={1.5} />
-            </div>
-            <div className="environment-info">
-              <h3>
-                {env.name}
-                {env.id === "demo" && (
-                  <span className="soft-label">Built-in demo</span>
-                )}
-              </h3>
-              <a
-                href={env.id === "demo" ? "/demo" : env.url}
-                target="_blank"
-                rel="noreferrer"
-              >
-                {env.url}
-                <ArrowUpRight size={13} />
-              </a>
-              <p>{env.description || "No description added."}</p>
-            </div>
-            <div className="env-actions">
-              {env.id === "demo" ? (
-                <button className="btn compact" onClick={onTest}>
-                  Start a session
-                </button>
-              ) : (
-                <>
-                  <button
-                    className="icon-btn"
-                    aria-label={`Edit ${env.name}`}
-                    onClick={() => onEdit(env)}
-                  >
-                    <Pencil size={17} />
-                  </button>
-                  <button
-                    className="icon-btn"
-                    aria-label={`Delete ${env.name}`}
-                    onClick={() => onDelete(env)}
-                  >
-                    <Trash2 size={17} />
-                  </button>
-                </>
-              )}
-            </div>
-          </article>
-        ))}
-      </div>
-      <div className="bottom-note">
-        <ShieldCheck size={18} />
-        <div>
-          <strong>A fresh browser, every time.</strong>
-          <p>
-            Runs use isolated contexts without your personal cookies. This
-            version checks public pages and the built-in demo.
-          </p>
-        </div>
-      </div>
-    </>
+    <div className="reference-pages reference-environments">
+      <header className="reference-page-header"><h1>Environments</h1><button className="btn primary" onClick={onAdd}><Plus size={16}/>Create environment</button></header>
+      <div className="reference-table-wrap"><table className="reference-table"><thead><tr><th>Name</th><th>Base URL</th><th aria-label="Actions"/></tr></thead><tbody>{items.map(env => <tr key={env.id}>
+        <td><button className="reference-cell-link" onClick={() => env.id === "demo" ? onTest() : onEdit(env)}>{env.name}</button></td>
+        <td><a href={env.id === "demo" ? "/demo" : env.url} target="_blank" rel="noreferrer">{env.url}</a></td>
+        <td className="reference-row-actions"><details><summary aria-label={`Actions for ${env.name}`}><MoreHorizontal size={17}/></summary><div className="reference-row-menu">{env.id === "demo" ? <button onClick={onTest}><Play size={14}/>Start a session</button> : <><button onClick={() => onEdit(env)}><Pencil size={14}/>Edit environment</button><button onClick={() => onDelete(env)}><Trash2 size={14}/>Delete environment</button></>}</div></details></td>
+      </tr>)}</tbody></table>{!items.length && <p className="reference-table-empty">No environments yet. Create one to start testing.</p>}</div>
+    </div>
   );
 }
+
 export function KnowledgeBase({
   items,
   onAdd,
@@ -287,85 +226,15 @@ export function Schedules({
   const [timeZone, setTimeZone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
   const [sourceSessionId, setSource] = useState("");
   return (
-    <>
-      <PageHeading
-        title="Schedules"
-        text="Repeat your browser checks on a regular cadence."
-        action={
-          <button className="btn primary" onClick={() => setShow(true)}>
-            <Plus size={17} />
-            New schedule
-          </button>
-        }
-      />
-      <div className="schedule-note">
-        <ClockIcon />
-        <p>
-          Scheduled checks run while the testing service is on. Missed runs are
-          picked up when it restarts.
-        </p>
-      </div>
-      {!items.length ? (
-        <Empty
-          icon={<CalendarDays size={28} />}
-          title="Keep an eye on the essentials"
-          text="Schedule a daily smoke test or a recurring navigation and accessibility check."
-          action={
-            <button className="btn" onClick={() => setShow(true)}>
-              Create schedule
-            </button>
-          }
-        />
-      ) : (
-        <div className="schedule-list">
-          {items.map((s) => (
-            <article key={s.id}>
-              <CalendarDays size={24} />
-              <div>
-                <h3>{s.name}</h3>
-                <p>
-                  {environments.find((e) => e.id === s.environmentId)?.name} ·
-                  {scheduleLabel(s)}
-                </p>
-                {s.scheduleType === "cron" && <small>Cron: {s.cronExpression}</small>}
-                {s.sourceName && <p>{s.sourceName} · {s.checks?.length || 0} saved tests</p>}
-                <small>
-                  {s.enabled
-                    ? `Next run: ${new Date(s.nextRunAt).toLocaleString([], s.scheduleType === "cron" ? {timeZone: s.timeZone, timeZoneName: "short"} : undefined)}`
-                    : "Paused"}
-                  {s.lastError && (
-                    <span className="inline-error"> · {s.lastError}</span>
-                  )}
-                </small>
-                {s.lastRunId && (
-                  <button
-                    className="text-button"
-                    onClick={() => onOpen(s.lastRunId!)}
-                  >
-                    View latest run
-                    <ArrowUpRight size={13} />
-                  </button>
-                )}
-              </div>
-              <button className="btn compact" onClick={() => onRun(s)} disabled={sessions.some(x => x.id === s.lastRunId && ["running", "cancelling"].includes(x.status))}><Play size={14} /> Run now</button>
-              <button
-                className={`btn compact ${s.enabled ? "" : "muted"}`}
-                onClick={() => onToggle(s)}
-              >
-                {s.enabled ? <Pause size={14} /> : <Play size={14} />}{" "}
-                {s.enabled ? "Pause" : "Resume"}
-              </button>
-              <button
-                className="icon-btn"
-                aria-label={`Delete ${s.name}`}
-                onClick={() => onDelete(s)}
-              >
-                <Trash2 size={16} />
-              </button>
-            </article>
-          ))}
-        </div>
-      )}
+    <div className="reference-pages reference-schedules">
+      <header className="reference-page-header"><h1>Schedules</h1>{items.length > 0 && <button className="btn primary" onClick={() => setShow(true)}><Plus size={16}/>New schedule</button>}</header>
+      {!items.length ? <div className="reference-empty"><span className="reference-empty-icon"><CalendarDays size={18}/></span><h2>No schedules yet</h2><p>Start recurring QA sessions without<br/>kicking each one off by hand.</p><button className="btn primary" onClick={() => setShow(true)}><Plus size={16}/>New schedule</button></div> :
+      <div className="reference-table-wrap"><table className="reference-table reference-schedule-table"><thead><tr><th>Name</th><th>Schedule</th><th>Next run</th><th>Actions</th></tr></thead><tbody>{items.map(s => <tr key={s.id}>
+        <td><strong>{s.name}</strong><small>{environments.find(e => e.id === s.environmentId)?.name}{s.sourceName ? ` · ${s.sourceName}` : ""}</small>{s.lastRunId && <button className="reference-latest-run" onClick={() => onOpen(s.lastRunId!)}>View latest run <ArrowUpRight size={12}/></button>}</td>
+        <td>{scheduleLabel(s)}{s.scheduleType === "cron" && <small>{s.cronExpression}</small>}</td>
+        <td>{s.enabled ? new Date(s.nextRunAt).toLocaleString([],s.scheduleType === "cron" ? {timeZone:s.timeZone,timeZoneName:"short"} : undefined) : "Paused"}{s.lastError && <small className="inline-error">{s.lastError}</small>}</td>
+        <td><div className="reference-schedule-actions"><button className="btn compact" onClick={() => onRun(s)} disabled={sessions.some(x => x.id === s.lastRunId && ["running","cancelling"].includes(x.status))}><Play size={13}/>Run now</button><button className="btn compact" onClick={() => onToggle(s)}>{s.enabled ? <Pause size={13}/> : <Play size={13}/>} {s.enabled ? "Pause" : "Resume"}</button><button className="icon-btn" aria-label={`Delete ${s.name}`} onClick={() => onDelete(s)}><Trash2 size={14}/></button></div></td>
+      </tr>)}</tbody></table></div>}
       {show && (
         <Dialog title="New schedule" onClose={() => setShow(false)}>
           <form
@@ -446,11 +315,8 @@ export function Schedules({
           </form>
         </Dialog>
       )}
-    </>
+    </div>
   );
-}
-function ClockIcon() {
-  return <CalendarDays size={17} />;
 }
 export function Library({
   sessions,

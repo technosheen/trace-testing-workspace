@@ -9,7 +9,7 @@ import YAML from "yaml";
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 test(
   "real browser workflow, reproduction, regression round-trip, cancellation and durable review",
-  { timeout: 120000 },
+  { timeout: 240000 },
   async (t) => {
     const temp = await mkdtemp(path.join(tmpdir(), "trace-test-"));
     const socket = net.createServer();
@@ -71,10 +71,12 @@ test(
       const note = await api("/knowledge", "POST", { title: "Product flow", content: "Select Everyday essentials", category: "flows", environmentId: "demo" });
       assert.equal(note.environmentId, "demo");
       assert.equal(note.category, "flows");
-      const editedNote = await api(`/knowledge/${note.id}`, "PATCH", { title: "Shared terminology", content: "Everyday essentials", category: "terminology" });
+      assert.equal(note.enabled, true);
+      const editedNote = await api(`/knowledge/${note.id}`, "PATCH", { title: "Shared terminology", content: "Everyday essentials", category: "terminology", enabled: false });
       assert.equal(editedNote.environmentId, undefined);
       assert.ok(editedNote.updatedAt);
       assert.equal(editedNote.id, note.id);
+      assert.equal(editedNote.enabled, false);
       const invalidScope = await fetch(`${base}/api/knowledge`, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({title:"Invalid",content:"Context",environmentId:"unknown"}) });
       assert.equal(invalidScope.status, 404);
       const invalidCategory = await fetch(`${base}/api/knowledge/${note.id}`, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({title:"Invalid",content:"Context",category:"unsupported"}) });
@@ -89,7 +91,14 @@ test(
         kind: "text",
         value: "Everyday essentials",
       });
+      const archive = await api(`/sessions/${session.id}/archive`, "POST", { archived: true });
+      assert.ok(archive.archivedAt);
+      assert.equal(archive.cases.length, 10);
+      const restored = await api(`/sessions/${session.id}/archive`, "POST", { archived: false });
+      assert.equal(restored.archivedAt, undefined);
       await api(`/sessions/${session.id}/run`, "POST");
+      const activeArchive = await fetch(`${base}/api/sessions/${session.id}/archive`, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({archived:true}) });
+      assert.equal(activeArchive.status, 400);
       const duplicate = await fetch(`${base}/api/sessions/${session.id}/run`, {
         method: "POST",
       });

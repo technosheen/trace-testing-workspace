@@ -22,6 +22,7 @@ import {
   SettingsPage,
 } from "./components/WorkspacePages";
 import { KnowledgeWorkspace } from "./components/KnowledgeWorkspace";
+import { SessionComposer } from "./components/SessionComposer";
 import { Dashboard } from "./components/Dashboard";
 import { TestEditor } from "./components/TestEditor";
 import { WorkspaceReports } from "./components/WorkspaceReports";
@@ -40,7 +41,7 @@ type Modal =
       action: () => Promise<unknown>;
     };
 function readRoute() {
-  return location.hash.replace(/^#\/?/, "") || "dashboard";
+  return location.hash.replace(/^#\/?/, "") || "new";
 }
 function WorkspaceApp({ onSignOut }: { onSignOut?: () => void }) {
   const { data, error, refresh } = useWorkspace();
@@ -110,6 +111,12 @@ function WorkspaceApp({ onSignOut }: { onSignOut?: () => void }) {
       title={title}
       go={go}
       connected={Boolean(data) && !error}
+      sessions={data?.sessions || []}
+      selectedId={selected?.id}
+      ai={data?.service.ai}
+      activeRuns={data?.service.activeRuns || 0}
+      onArchive={(session) => void act(() => request(`/sessions/${session.id}/archive`, "POST", {archived:!session.archivedAt}), session.archivedAt ? "Session restored." : "Session archived.")}
+      onDuplicate={(session) => void (async () => { const result=await act(() => request<Session>(`/sessions/${session.id}/duplicate`,"POST",{}));if(result)go(`sessions/${(result as Session).id}`); })()}
       hosted={data?.service.mode === "hosted"}
       onSignOut={onSignOut}
     >
@@ -127,6 +134,8 @@ function WorkspaceApp({ onSignOut }: { onSignOut?: () => void }) {
         </div>
       ) : (
         <>
+          {page === "new" && <SessionComposer environments={data.environments} aiAvailable={Boolean(data.service.ai?.configured)} busy={busy} onSubmit={create} onImport={() => setModal({type:"import"})} onLibrary={() => go("library")} />}
+          {["dashboard","runs","findings","library"].includes(page) && <nav className="workspace-tabs" aria-label="Workspace views">{[{id:"dashboard",name:"Overview"},{id:"runs",name:"Runs"},{id:"findings",name:"Findings"},{id:"library",name:"Test library"}].map(t=><button key={t.id} aria-pressed={page===t.id} onClick={()=>go(t.id)}>{t.name}</button>)}</nav>}
           {page === "dashboard" && <Dashboard data={data} go={go} onNew={() => setModal({type:"new"})} onImport={() => setModal({type:"import"})} />}
           {(page === "runs" || page === "findings") && <WorkspaceReports data={data} kind={page} onOpen={(id, runId) => go(`sessions/${id}${runId ? `/${runId}` : ""}`)} />}
           {modal?.type === "editor" && <TestEditor session={modal.session} busy={busy} onClose={() => setModal(null)} onSave={(yaml) => void act(() => request(`/sessions/${modal.session.id}/plan`, "PUT", {yaml}), "Test plan saved.")} />}
