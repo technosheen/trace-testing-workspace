@@ -95,6 +95,7 @@ export async function startAgent(session, model) {
   const previous=structuredClone(session);
   active.set(session.id,control);
   session.status='running';session.startedAt=now();session.finishedAt=null;session.agent={...session.agent,state:'running',steps:[],evidence:[],decisions:0,summary:'Exploring the live page.'};
+  delete session.agent.failureKind;delete session.agent.trace;
   try { event(session,'Agent','Live exploration started. Up to eight decisions; no form submissions.'); }
   catch(error) {
     active.delete(session.id);controller.abort();

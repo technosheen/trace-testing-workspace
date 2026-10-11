@@ -347,3 +347,70 @@ test('the standalone agent endpoint rejects a planned team before mutating its d
  assert.deepEqual(await api('/sessions/team'),before);
  assert.equal((await api('/workspace')).service.activeRuns,0);
 });
+
+test('a team worker storage outage releases parent and worker controls and keeps recovery available',{timeout:40000},async t=>{
+ const store=pathToFileURL(path.resolve('server/store.mjs')).href;
+ const runtime=pathToFileURL(path.resolve('server/team-runtime.mjs')).href;
+ const runner=pathToFileURL(path.resolve('server/runner.mjs')).href;
+ const errors=pathToFileURL(path.resolve('server/agent-errors.mjs')).href;
+ const entry=pathToFileURL(path.resolve('server/index.mjs')).href;
+ const fixture=await service(t,{
+  workspace:port=>{const data=seededWorkspace(port);data.sessions=data.sessions.filter(session=>session.id==='team');data.sessions[0].cases=[];data.sessions[0].team.goals=[{name:'Headline',brief:'Check visible headline'}];return data;},
+  bootstrap:temp=>`
+   import {db} from ${JSON.stringify(store)};
+   import {createTeamRuntime} from ${JSON.stringify(runtime)};
+   import {active} from ${JSON.stringify(runner)};
+   import {agentError} from ${JSON.stringify(errors)};
+   import {writeFileSync} from 'node:fs';
+   await import(${JSON.stringify(entry)});
+   const runtime=createTeamRuntime({status:()=>({configured:true,generating:false}),decide:async()=>{
+    writeFileSync(${JSON.stringify(path.join(temp,'workspace.json'))},JSON.stringify({...db,externalWriter:'preserve real team conflict'}));
+    throw agentError('ai_rate_limit');
+   }});
+   await runtime.start(db.sessions[0]);
+   void runtime.coordinator.whenIdle('team').then(()=>writeFileSync(${JSON.stringify(path.join(temp,'team-active'))},String(active.size)));
+  `,
+ });
+ const workspace=await awaitWorkersStopped(fixture);
+ assert.ok(!['running','cancelling'].includes(workspace.sessions[0].status));
+ assert.equal(await readFile(path.join(fixture.temp,'team-active'),'utf8'),'0');
+ assert.equal((await fixture.request('/health')).status,503);
+});
+
+test('a team final starting checkpoint failure stops spawned work and releases all reserved capacity',{timeout:30000},async t=>{
+ const store=pathToFileURL(path.resolve('server/store.mjs')).href;
+ const entry=pathToFileURL(path.resolve('server/index.mjs')).href;
+ const runner=pathToFileURL(path.resolve('server/runner.mjs')).href;
+ const {api,request,temp}=await service(t,{
+  workspace:port=>{const data=seededWorkspace(port);data.sessions=data.sessions.filter(session=>session.id==='team');data.sessions[0].cases=[];data.sessions[0].team.goals=[{name:'Headline',brief:'Check visible headline'}];return data;},
+  bootstrap:temp=>`
+   import {db} from ${JSON.stringify(store)};
+   import {active} from ${JSON.stringify(runner)};
+   import {writeFileSync} from 'node:fs';
+   await import(${JSON.stringify(entry)});
+   let value;
+   Object.defineProperty(db.sessions[0],'runId',{enumerable:true,configurable:true,get:()=>value,set:next=>{
+    value=next;writeFileSync(${JSON.stringify(path.join(temp,'workspace.json'))},JSON.stringify({...db,externalWriter:'preserve final team start conflict'}));
+   }});
+   process.on('SIGTERM',()=>writeFileSync(${JSON.stringify(path.join(temp,'final-active'))},String(active.size)));
+  `,
+ });
+ assert.equal((await request('/sessions/team/team/run','POST')).status,503);
+ const after=await api('/workspace');
+ assert.equal(after.service.activeRuns,0);
+ assert.ok(!['running','cancelling'].includes(after.sessions[0].status));
+ assert.equal(after.sessions[0].cases.length,0);
+ // The session's zero-slot parent reservation also needs release; browserCount omits it.
+ await request('/sessions/team/cancel','POST').then(result=>assert.equal(result.status,400));
+});
+
+test('explicit agent restart clears failure and trace metadata from the previous attempt',{timeout:20000},async t=>{
+ const {request}=await service(t,{browserChannel:'fixture-channel-that-cannot-launch',workspace:port=>{
+  const data=seededWorkspace(port);data.sessions=data.sessions.filter(session=>session.id==='agent');data.sessions[0].cases=[];
+  data.sessions[0].status='blocked';Object.assign(data.sessions[0].agent,{state:'blocked',failureKind:'ai_timeout',trace:'/artifacts/previous-attempt.zip'});return data;
+ }});
+ const started=await request('/sessions/agent/agent/run','POST');
+ assert.equal(started.status,200);
+ assert.equal(started.body.agent.failureKind,undefined);
+ assert.equal(started.body.agent.trace,undefined);
+});
