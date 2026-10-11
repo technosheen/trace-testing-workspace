@@ -488,7 +488,7 @@ export function CaseDetail({
                 ))}
               </ol>
             </section>
-            {item.result?.stepResults && <section className="inspector-section"><h3>Step results</h3>{item.result.stepResults.map((step) => <div className="control-row" key={step.index}><Status value={step.status} /><div><strong>{step.index + 1}. {step.action}</strong><p>{step.summary}</p>{step.durationMs !== undefined && <small>{step.durationMs} ms</small>}</div></div>)}</section>}
+            {item.result?.stepResults && <section className="inspector-section"><h3>Step results</h3>{item.result.stepResults.map((step) => <div className="control-row" key={step.index}><Status value={step.status} /><div><strong>{step.index}. {step.action}</strong><p>{step.summary}</p>{step.durationMs !== undefined && <small>{step.durationMs} ms</small>}</div></div>)}</section>}
             {item.result?.details.length ? (
               <section className="inspector-section">
                 <h3>Observed details</h3>
