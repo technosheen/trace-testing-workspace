@@ -46,10 +46,11 @@ test('real browser team explores two goals, independently verifies and reproduce
   const {createTeamRuntime} = await import('./team-runtime.mjs');
   const {db,save} = await import('./store.mjs');
   const {browserCount,active} = await import('./runner.mjs');
+  let retryExpectation=false;
   const model = {status:()=>({configured:true,generating:false}),async decide({brief,observation,steps}) {
     const reason='Check the explicit supplied expectation.';
     if (!steps.length) return {action:'click',ref:observation.targets.find(target=>target.role==='link'&&target.name==='Our story').ref,value:'',reason};
-    if (steps.length===1) return {action:'assertText',ref:observation.targets.find(target=>target.role==='heading'&&target.name==='Our story').ref,value:brief.includes('Missing promise')?'Missing promise':'Our story',reason};
+    if (steps.length===1) return {action:'assertText',ref:observation.targets.find(target=>target.role==='heading'&&target.name==='Our story').ref,value:brief.includes('Missing promise')&&!retryExpectation?'Missing promise':'Our story',reason};
     return {action:'finish',ref:'',value:'',reason:'Recorded assertion completed.'};
   }};
   const session = {id:'team-runtime-fixture',name:'Browser team fixture',brief:'Explore the supplied story requirements.',url:`http://127.0.0.1:${process.env.PORT}/demo`,environmentId:'demo',cases:[],findings:[],activity:[],history:[],status:'planned',agent:{includeKnowledge:false},team:{state:'planned',tasks:[],goals:[
@@ -90,6 +91,14 @@ test('real browser team explores two goals, independently verifies and reproduce
     assert.equal(persisted.team.tasks.length,4);
     assert.equal(persisted.findings.length,1);
     assert.ok(persisted.finishedAt);
+    const previousId=session.cases.find(spec=>spec.name==='Missing supplied expectation').id;
+    retryExpectation=true;
+    await runtime.retry(session);await runtime.coordinator.whenIdle(session.id);await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(session.cases.find(spec=>spec.name==='Missing supplied expectation').id,previousId);
+    assert.equal(session.findings.length,0);
+    assert.equal(session.history[0].findings.length,1);
+    assert.equal(session.history[0].findings[0].caseId,previousId);
+    assert.equal(session.cases.find(spec=>spec.id===previousId).status,'passed');
     await fs.cp(dataDir,'/tmp/trace-team-ui-proof',{recursive:true});
   } finally {
     clearInterval(sampler);

@@ -26,7 +26,16 @@ export async function journey(page,spec,inputs){
     do{if((await element.innerText()).includes(a.value)){found=true;break;}await page.waitForTimeout(100);}while(Date.now()<deadline);
     if(!found){failureKind='assertion_mismatch';status='issues_found';throw Error('Expected visible text was not found.');}
    }else if(a.action==='assertUrl'){
-    await page.waitForURL(new URL(a.value,inputs.url).href,{timeout:10000});
+    const expected=new URL(a.value,inputs.url).href;
+    try{await page.waitForURL(expected,{timeout:10000});}
+    catch(error){
+     // Only a healthy page that failed the URL expectation establishes a mismatch.
+     // Network failures, closed pages and cancellation remain execution blockers.
+     if(error.name==='TimeoutError'&&!page.isClosed()&&/^https?:/.test(page.url())&&page.url()!==expected&&!/net::|ERR_|closed|cancel|abort/i.test(error.message)){
+      failureKind='assertion_mismatch';throw Error('Expected URL was not reached.');
+     }
+     throw error;
+    }
    }
    steps.push({index:i+1,action:a.action,status:'passed',durationMs:Date.now()-start,summary:'Completed.'});
   }catch(error){

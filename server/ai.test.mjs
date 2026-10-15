@@ -220,3 +220,10 @@ test('agent AI failures retain safe categories without provider secrets', async 
  const planner=createAiPlanner({env,db:{},save(){},client:{responses:{async create(){return {status:'completed',output_text:'private malformed output'};}}}});
  await assert.rejects(planner.decide({},new AbortController().signal),error=>error.code==='invalid_decision'&&!error.message.includes('private malformed'));
 });
+
+test('initial draft save failure releases busy state and preserves storage code', async()=>{
+ let calls=0,time=100000;const error=Object.assign(Error('save failed'),{code:'TRACE_STORAGE_STALE'});
+ const planner=createAiPlanner({env,db:{},clock:()=>time,save(){throw error;},client:{responses:{async create(){calls++;return response();}}}});
+ await assert.rejects(planner.generate(input,environment),{code:'TRACE_STORAGE_STALE'});assert.equal(planner.status().generating,false);assert.equal(calls,0);
+ time+=10000;await assert.rejects(planner.generate(input,environment),{code:'TRACE_STORAGE_STALE'});assert.equal(calls,0);
+});

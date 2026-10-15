@@ -48,7 +48,13 @@ export function createTeamRuntime(model,{coordinatorOptions={}}={}) {
     return explore(page,{brief:task.brief,knowledge,signal,decide:async(input,s)=>{task.decisions++;save();return decide(input,s);},onStep:async(step,p)=>{task.steps.push(step);evidence.push({id:id(),at:now(),kind:'screenshot',url:await screenshot(p,'team-explorer'),caption:step.summary});event(session,'Explorer',step.summary,{taskId:task.id,status:step.status});}});
    });
    const spec=discoveredCase(result,{name:task.name,goalId:task.goalId});
-   if(spec){const previous=session.cases.findIndex(c=>c.discovery?.goalId===task.goalId);if(previous>=0)session.cases[previous]=spec;else session.cases.push(spec);save();}
+   if(spec){const previous=session.cases.findIndex(c=>c.discovery?.goalId===task.goalId);if(previous>=0){
+    const old=session.cases[previous];spec.id=old.id;
+    // A retry's history snapshot retains the earlier expectation and evidence.
+    // Current findings must never be relinked to a changed recorded assertion.
+    if(JSON.stringify(old.actions)!==JSON.stringify(spec.actions))session.findings=session.findings.filter(f=>f.caseId!==old.id);
+    session.cases[previous]=spec;
+   }else session.cases.push(spec);save();}
    return {...result,case:spec};
   },
   async executeVerifier(task,{signal,session}){
@@ -58,6 +64,8 @@ export function createTeamRuntime(model,{coordinatorOptions={}}={}) {
    })});
    const spec=session.cases.find(c=>c.id===task.case.id);
    if(spec){const first=result.attempts?.[0]?.result||result.attempts?.[0];spec.status=result.verdict==='verified'?'passed':result.verdict==='issues_found'?'issues_found':'blocked';spec.result={status:spec.status,summary:result.summary,details:first?.details||[],stepResults:first?.stepResults||[]};spec.evidence=[...(task.evidence||[])];spec.discovery.independentlyVerified=result.verdict==='verified';}
+   // This case was independently reverified; history owns any prior run finding.
+   session.findings=session.findings.filter(f=>f.caseId!==task.case.id);
    if(result.verdict==='issues_found'&&result.finding&&!session.findings.some(f=>f.fingerprint===result.fingerprint))session.findings.push({...result.finding,id:id(),caseId:task.case.id,name:task.name,kind:'bug',fingerprint:result.fingerprint,expected:task.case.acceptance,actual:result.summary,details:spec?.result?.details||[],reproSteps:task.case.steps,reproduction:'reproduced',triage:'OPEN',createdAt:now(),evidence:[...(task.evidence||[])],reproductionResult:result.attempts?.[1]?.result||result.attempts?.[1]||null});
    save();return {...result,state:result.verdict};
   }});

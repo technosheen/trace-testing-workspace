@@ -259,8 +259,8 @@ export function createAiPlanner({
     used.attempts++;
     used.lastAttemptAt = clock();
     lastModelAttemptAt = used.lastAttemptAt;
-    save();
     try {
+      save();
       getClient();
       const response = await client.responses.create(
         {
@@ -316,6 +316,7 @@ export function createAiPlanner({
         },
       };
     } catch (error) {
+      if (error.code?.startsWith("TRACE_STORAGE_")) throw error;
       if (error.message?.startsWith("AI ") && error.status === 502) throw error;
       if (error.status === 429)
         throw failure(
