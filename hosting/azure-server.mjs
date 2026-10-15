@@ -3,12 +3,18 @@ import { Readable } from "node:stream";
 import { resolve } from "node:path";
 import { createGateway } from "./gateway.mjs";
 
+// ACA appends its verified peer address; caller-supplied prefixes are untrusted.
+// https://learn.microsoft.com/en-us/azure/container-apps/ingress-overview#http-headers
+export function getAzureClientIdentity(request) {
+  return request.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim() || "unknown";
+}
+
 export function createAzureApp(env = process.env) {
   const app = express();
   const gateway = createGateway(
     { ...env, TRACE_RUNNER_URL: "http://127.0.0.1:4310" },
     fetch,
-    { allowLocalRunner: true, trustAzureAuthentication: true },
+    { allowLocalRunner: true, trustAzureAuthentication: true, getClientIdentity: getAzureClientIdentity },
   );
   app.disable("x-powered-by");
   app.get("/api/health", async (_req, res) => {

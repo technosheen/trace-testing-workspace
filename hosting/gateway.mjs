@@ -1,4 +1,20 @@
 import { createHmac, timingSafeEqual, randomUUID } from "node:crypto";
+import { isIP } from "node:net";
+
+// A hosting adapter chooses the trusted header; normalize only literal IPs.
+export function normalizeClientIdentity(value) {
+  if (typeof value !== "string" || value.length > 64) return "unknown";
+  const ip = value.trim();
+  const version = isIP(ip);
+  if (version === 4) return ip;
+  if (version !== 6 || ip.includes("%")) return "unknown";
+  const canonical = new URL(`http://[${ip}]/`).hostname.slice(1, -1);
+  // IPv4-mapped IPv6 and IPv4 denote the same client.
+  const mapped = /^::ffff:([a-f0-9]+):([a-f0-9]+)$/.exec(canonical);
+  if (!mapped) return canonical;
+  const parts = mapped.slice(1).map((part) => parseInt(part, 16));
+  return [parts[0] >> 8, parts[0] & 255, parts[1] >> 8, parts[1] & 255].join(".");
+}
 const cookieName = "__Host-trace";
 const lifetime = 8 * 60 * 60;
 function azureAuthorized(request, env, options) {
@@ -160,6 +176,12 @@ export function createGateway(
         const body = await request.text();
         if (Buffer.byteLength(body) > 2048)
           return json({ error: "Request too large." }, 413);
+        let clientIdentity;
+        try {
+          clientIdentity = normalizeClientIdentity(options.getClientIdentity?.(request));
+        } catch {
+          return json({ error: "Hosting configuration is incomplete." }, 503);
+        }
         const response = await upstreamFetch(
           new URL("/api/auth/login", runner),
           {
@@ -167,8 +189,7 @@ export function createGateway(
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${TRACE_RUNNER_KEY}`,
-              "X-Trace-Client":
-                request.headers.get("x-vercel-forwarded-for") || "unknown",
+              "X-Trace-Client": clientIdentity,
             },
             body,
             redirect: "manual",

@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createGateway, createSession, validSession } from "./gateway.mjs";
+import { scryptSync } from "node:crypto";
+import { getVercelClientIdentity } from "../api/gateway.mjs";
+import { getAzureClientIdentity } from "./azure-server.mjs";
+import { createGateway, createSession, validSession, normalizeClientIdentity } from "./gateway.mjs";
 const env = {
   TRACE_RUNNER_URL: "https://runner.example.com",
   TRACE_RUNNER_KEY: "r".repeat(40),
@@ -328,4 +331,82 @@ test("plan editing accepts PUT and larger validated YAML bodies without raising 
  assert.equal((await send("/api/sessions/fixture/plan",525000)).status,413);
  assert.equal((await send("/api/knowledge",100000)).status,413);
  assert.equal(calls,1);
+});
+
+// Exercise the actual password verifier, rather than a stubbed success response.
+async function verifierGateway(options) {
+  const salt = "a".repeat(32);
+  process.env.TRACE_PASSWORD_HASH = `scrypt:${salt}:${scryptSync("correct", salt, 64).toString("hex")}`;
+  const { verifyPassword } = await import(`../server/auth.mjs?isolated=${Math.random()}`);
+  return createGateway(env, async (_url, init) => {
+    const result = verifyPassword(JSON.parse(init.body).password, init.headers["X-Trace-Client"]);
+    return Response.json(result, { status: result.status });
+  }, options);
+}
+const signIn = (gateway, headers, password = "wrong") => gateway(req("/api/auth/login", {
+  method: "POST", headers: { origin, ...headers }, body: JSON.stringify({ password }),
+}));
+test("Azure clients have isolated attempt budgets and forged prefixes cannot reset them", async () => {
+  const gateway = await verifierGateway({ getClientIdentity: getAzureClientIdentity });
+  for (let i = 0; i < 5; i++) {
+    assert.equal((await signIn(gateway, {
+      "x-forwarded-for": `192.0.2.${i}, 198.51.100.1`,
+      "x-vercel-forwarded-for": `203.0.113.${i}`,
+    })).status, 401);
+  }
+  assert.equal((await signIn(gateway, { "x-forwarded-for": "198.51.100.2" }, "correct")).status, 200);
+  assert.equal((await signIn(gateway, { "x-forwarded-for": "192.0.2.99, 198.51.100.1" }, "correct")).status, 429);
+});
+test("missing and malformed Azure identities share a bounded fallback", async () => {
+  const gateway = await verifierGateway({ getClientIdentity: getAzureClientIdentity });
+  for (const value of [undefined, "invalid", "192.0.2.1, invalid", "", "192.0.2.1,"]) {
+    assert.equal((await signIn(gateway, value === undefined ? {} : { "x-forwarded-for": value })).status, 401);
+  }
+  assert.equal((await signIn(gateway, { "x-vercel-forwarded-for": "192.0.2.4" }, "correct")).status, 429);
+});
+test("equivalent IPv6 identities cannot reset their attempt budget", async () => {
+  const gateway = await verifierGateway({ getClientIdentity: getAzureClientIdentity });
+  for (let i = 0; i < 5; i++)
+    assert.equal((await signIn(gateway, { "x-forwarded-for": "2001:0db8:0:0:0:0:0:1" })).status, 401);
+  assert.equal((await signIn(gateway, { "x-forwarded-for": "2001:db8::1" }, "correct")).status, 429);
+});
+
+test("Azure throttle isolates clients when no Vercel header is present", async () => {
+  const gateway = await verifierGateway({ getClientIdentity: getAzureClientIdentity });
+  for (let i = 0; i < 5; i++)
+    assert.equal((await signIn(gateway, { "x-forwarded-for": "198.51.100.8" })).status, 401);
+  assert.equal((await signIn(gateway, { "x-forwarded-for": "198.51.100.9" }, "correct")).status, 200);
+  assert.equal((await signIn(gateway, { "x-forwarded-for": "198.51.100.8" }, "correct")).status, 429);
+});
+test("Vercel adapter uses its platform identity and generic gateway trusts no header", async () => {
+  const gateway = await verifierGateway({ getClientIdentity: getVercelClientIdentity });
+  for (let i = 0; i < 5; i++)
+    assert.equal((await signIn(gateway, { "x-vercel-forwarded-for": "192.0.2.1", "x-forwarded-for": `192.0.2.${i}` })).status, 401);
+  assert.equal((await signIn(gateway, { "x-vercel-forwarded-for": "192.0.2.2" }, "correct")).status, 200);
+  assert.equal((await signIn(gateway, { "x-vercel-forwarded-for": "192.0.2.1" }, "correct")).status, 429);
+  const generic = await verifierGateway({});
+  for (let i = 0; i < 5; i++)
+    assert.equal((await signIn(generic, { "x-vercel-forwarded-for": `192.0.2.${i}` })).status, 401);
+  assert.equal((await signIn(generic, { "x-vercel-forwarded-for": "192.0.2.99" }, "correct")).status, 429);
+});
+test("global password attempt budget remains thirty across distinct clients", async () => {
+  const gateway = await verifierGateway({ getClientIdentity: getAzureClientIdentity });
+  for (let i = 0; i < 30; i++)
+    assert.equal((await signIn(gateway, { "x-forwarded-for": `192.0.2.${i}` })).status, 401);
+  assert.equal((await signIn(gateway, { "x-forwarded-for": "192.0.2.99" }, "correct")).status, 429);
+});
+
+test("client identity accepts only bounded literal IPs and canonicalizes equivalent forms", () => {
+  assert.equal(normalizeClientIdentity("2001:0DB8:0:0:0:0:0:1"), "2001:db8::1");
+  assert.equal(normalizeClientIdentity("::ffff:192.0.2.1"), "192.0.2.1");
+  for (const value of [undefined, null, {}, 42, "127.1", "192.0.2.1:80", "[::1]", "fe80::1%eth0", "192.0.2.1, 192.0.2.2", "x".repeat(1000)])
+    assert.equal(normalizeClientIdentity(value), "unknown");
+});
+test("failing hosting identity adapters fail closed as configuration errors", async () => {
+  let calls = 0;
+  const gateway = createGateway(env, async () => { calls++; return Response.json({}); }, {
+    getClientIdentity() { throw new Error("bad adapter"); },
+  });
+  assert.equal((await signIn(gateway, {}, "correct")).status, 503);
+  assert.equal(calls, 0);
 });

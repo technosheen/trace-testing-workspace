@@ -87,6 +87,7 @@ test("hosted runner authenticates every API and artifact and throttles password 
     for (let i = 0; i < 5; i++)
       assert.equal((await login("wrong", "bad")).status, 401);
     assert.equal((await login(password, "bad")).status, 429);
+    assert.equal((await login(password, "other-client")).status, 200);
     assert.equal((await fetch(base + "/demo")).status, 200);
   } finally {
     await new Promise((resolve) => {
