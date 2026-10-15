@@ -1,14 +1,15 @@
 import { useState } from "react";
 import { ArrowLeft, Play, Download, Square, Plus, SearchCheck, Bug, CheckCircle2, ArrowUpRight, Clock3, FileText, Activity, History, ShieldCheck, Trash2, Copy, ChevronRight, Circle, AlertCircle } from "lucide-react";
 import type { Finding, Session, TestCase } from "../types";
+import { isOpenFinding } from "../finding-status";
 import { counts, date } from "../api";
-import { Dialog, Empty, EvidenceImage, SearchBox, Status, CheckList } from "./ui";
+import { Dialog, Empty, EvidenceImage, SearchBox, Status, CheckList, tabKeyDown } from "./ui";
 import "./newSessionReference.css";
 import {AgentTeamPanel} from "./AgentTeamPanel";
-export function SessionDetail({ session, onBack, onRun, onCancel, onCase, onFinding, onAddCase, onRemoveCase, onEdit, onDuplicate, initialRun }: {
-  session: Session; initialRun?: string; onEdit: () => void; onDuplicate: () => void; onBack: () => void; onRun: () => void; onCancel: () => void; onCase: (c: TestCase) => void; onFinding: (f: Finding) => void; onAddCase: () => void; onRemoveCase: (id: string) => void;
+export function SessionDetail({ session, onBack, onRun, onCancel, onCase, onFinding, onAddCase, onRemoveCase, onEdit, onDuplicate, initialRun, initialFinding }: {
+  session: Session; initialRun?: string; initialFinding?: string; onEdit: () => void; onDuplicate: () => void; onBack: () => void; onRun: () => void; onCancel: () => void; onCase: (c: TestCase) => void; onFinding: (f: Finding) => void; onAddCase: () => void; onRemoveCase: (id: string) => void;
 }) {
-  const [tab, setTab] = useState(initialRun ? "history" : "cases");
+  const [tab, setTab] = useState(initialFinding !== undefined ? "findings" : initialRun ? "history" : "cases");
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [run, setRun] = useState(initialRun || "latest");
@@ -24,7 +25,7 @@ export function SessionDetail({ session, onBack, onRun, onCancel, onCase, onFind
   const editable = session.status === "ready" && !session.agent && !session.team && !archived;
   const active = ["running", "cancelling"].includes(session.status);
   const visible = cases.filter(c => (filter === "all" || c.status === filter) && c.name.toLowerCase().includes(search.toLowerCase()));
-  const visibleFindings = findings.filter(f => (filter === "all" || (filter === "OPEN" && f.triage === "OPEN") || (filter === "ACCEPTED" && f.triage === "ACCEPTED") || (filter === "closed" && !["OPEN", "ACCEPTED"].includes(f.triage))) && f.name.toLowerCase().includes(search.toLowerCase()));
+  const visibleFindings = findings.filter(f => (filter === "all" || (filter === "OPEN" && f.triage === "OPEN") || (filter === "ACCEPTED" && f.triage === "ACCEPTED") || (filter === "closed" && !isOpenFinding(f))) && f.name.toLowerCase().includes(search.toLowerCase()));
   function changeTab(value: string) { setTab(value); setFilter("all"); setSearch(""); }
   const events = session.activity.slice().reverse();
   if (run !== "latest" && run !== session.runId && !archived)
@@ -60,9 +61,11 @@ export function SessionDetail({ session, onBack, onRun, onCancel, onCase, onFind
         <div className="reference-session-bottom"><span>{session.agent && !cases.length ? (active ? "Agent exploration is running. Recorded steps appear as they complete." : "Start the agent to discover a replayable test from the live page.") : active ? "Browser checks are running. Results appear as each check completes." : session.status === "ready" ? "Your test plan is ready to review and run." : "Review the results or start another run."}</span><div>{editable && <button className="btn compact" onClick={onEdit}>Edit tests</button>}{cases.length > 0 && <a className="btn compact" href={exportUrl("yaml")}><Download size={14}/>Export</a>}</div></div>
       </div>
       <div className="reference-results">
-        <div className="reference-result-tabs" role="tablist" aria-label="Session views">{[["activity","Activity",session.activity.length,Activity],["cases","Test cases",cases.length,SearchCheck],["findings","Bugs",findings.length,Bug],["history","History",session.history.length,History]].map(([id,label,total,Icon]) => { const I = Icon as typeof Activity; return <button key={String(id)} role="tab" aria-selected={tab===id} className={tab===id?"active":""} onClick={() => changeTab(String(id))}><I size={14}/>{String(label)}<span>{String(total)}</span></button>; })}</div>
+        <div className="reference-result-tabs" role="tablist" aria-label="Session views">{[["activity","Activity",session.activity.length,Activity],["cases","Test cases",cases.length,SearchCheck],["findings","Bugs",findings.length,Bug],["history","History",session.history.length,History]].map(([id,label,total,Icon]) => { const I = Icon as typeof Activity; return <button key={String(id)} role="tab" id={`session-tab-${id}`} aria-controls={`session-panel-${id}`} tabIndex={tab===id?0:-1} onKeyDown={tabKeyDown} aria-selected={tab===id} className={tab===id?"active":""} onClick={() => changeTab(String(id))}><I size={14}/>{String(label)}<span>{String(total)}</span></button>; })}</div>
         {archived && <div className="reference-archived">Viewing a preserved run. <button onClick={() => setRun("latest")}>Return to latest</button></div>}
-        <div className="reference-result-body">
+        {["activity","cases","findings","history"].filter(id=>id!==tab).map(id=><div key={id} id={`session-panel-${id}`} role="tabpanel" aria-labelledby={`session-tab-${id}`} hidden/>)}
+        <div className="reference-result-body" id={`session-panel-${tab}`} role="tabpanel" aria-labelledby={`session-tab-${tab}`} tabIndex={0}>
+          {initialFinding !== undefined && !session.findings.some(f=>f.id===initialFinding) && <p role="alert">Finding not found.</p>}
           {tab === "cases" && <>
             <SearchBox value={search} onChange={setSearch} placeholder="Search test cases..."/>
             <div className="reference-outcome-filters">{[["all","All outcomes",cases.length],["running","Running",cases.filter(c=>c.status==="running").length],["issues_found","Issues",n.issues],["blocked","Blocked",n.blocked],["passed","Passed",n.passed],["not_run","Not run",notRun]].map(([value,label,total]) => <button key={String(value)} className={filter===value?"active":""} onClick={() => setFilter(String(value))}>{String(label)}<span>{total}</span></button>)}</div>

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import {
   Plus,
   Box,
@@ -24,6 +24,7 @@ import type {
   Session,
   Workspace,
 } from "../types";
+import { scheduleLabel } from "../schedule-label";
 import { date } from "../api";
 import { Dialog, Empty, SearchBox, Status } from "./ui";
 import { modes } from "./Forms";
@@ -188,16 +189,6 @@ export function KnowledgeBase({
     </>
   );
 }
-function scheduleLabel(s: Schedule) {
-  if (s.scheduleType !== "cron") return `Every ${s.intervalHours} hours`;
-  const [minute, hour, day, month, weekday] = (s.cronExpression || "").split(" ");
-  if (/^\d+$/.test(minute) && /^\d+$/.test(hour) && day === "*" && month === "*") {
-    const at = `${Number(hour) % 12 || 12}:${minute.padStart(2, "0")} ${Number(hour) < 12 ? "AM" : "PM"}`;
-    if (weekday === "*") return `Daily at ${at} · ${s.timeZone}`;
-    if (weekday === "1-5") return `Weekdays at ${at} · ${s.timeZone}`;
-  }
-  return `Calendar schedule · ${s.timeZone}`;
-}
 export function Schedules({
   sessions, onRun,
   items,
@@ -211,11 +202,14 @@ export function Schedules({
   onRun: (s: Schedule) => void;
   items: Schedule[];
   environments: Environment[];
-  onAdd: (body: unknown) => void;
+  onAdd: (body: unknown) => Promise<boolean>;
   onToggle: (s: Schedule) => void;
   onDelete: (s: Schedule) => void;
   onOpen: (id: string) => void;
 }) {
+  const [pending, setPending] = useState(false);
+  const saving = useRef(false);
+  const [saveError, setSaveError] = useState("");
   const [show, setShow] = useState(false);
   const [name, setName] = useState("");
   const [environmentId, setEnvironment] = useState(environments[0]?.id || "");
@@ -236,16 +230,23 @@ export function Schedules({
         <td><div className="reference-schedule-actions"><button className="btn compact" onClick={() => onRun(s)} disabled={sessions.some(x => x.id === s.lastRunId && ["running","cancelling"].includes(x.status))}><Play size={13}/>Run now</button><button className="btn compact" onClick={() => onToggle(s)}>{s.enabled ? <Pause size={13}/> : <Play size={13}/>} {s.enabled ? "Pause" : "Resume"}</button><button className="icon-btn" aria-label={`Delete ${s.name}`} onClick={() => onDelete(s)}><Trash2 size={14}/></button></div></td>
       </tr>)}</tbody></table></div>}
       {show && (
-        <Dialog title="New schedule" onClose={() => setShow(false)}>
+        <Dialog title="New schedule" onClose={() => { if (!saving.current) setShow(false); }}>
           <form
-            onSubmit={(e) => {
+            onSubmit={async (e) => {
               e.preventDefault();
-              onAdd({ name, environmentId, mode, scheduleType, ...(scheduleType === "cron" ? {cronExpression,timeZone} : {intervalHours:hours}), ...(sourceSessionId ? {sourceSessionId} : {}) });
-              setShow(false);
-              setName("");
+              if (saving.current) return;
+              saving.current = true; setPending(true); setSaveError("");
+              try {
+              const saved = await onAdd({ name, environmentId, mode, scheduleType, ...(scheduleType === "cron" ? {cronExpression,timeZone} : {intervalHours:hours}), ...(sourceSessionId ? {sourceSessionId} : {}) });
+              if (saved) { setShow(false); setName(""); setEnvironment(environments[0]?.id || ""); setMode("smoke"); setHours(24); setScheduleType("interval"); setCronExpression("0 9 * * 1-5"); setTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"); setSource(""); }
+              else setSaveError("Schedule could not be saved. Your entries are preserved; try again.");
+              } catch (error) { setSaveError(error instanceof Error ? error.message : "Schedule could not be saved."); }
+              finally { saving.current = false; setPending(false); }
             }}
           >
             <div className="dialog-body">
+              {saveError && <p className="inline-error" role="alert">{saveError}</p>}
+              <fieldset disabled={pending} style={{border:0,padding:0,margin:0,minWidth:0}}>
               <label>
                 Name
                 <input
@@ -301,16 +302,18 @@ export function Schedules({
                 <label>Cron expression<input required maxLength={200} value={cronExpression} onChange={e => setCronExpression(e.target.value)} placeholder="0 9 * * 1-5"/><small>Minute · hour · day · month · weekday. Example: 0 9 * * 1-5 runs at 9 AM on weekdays. Choose one minute value; runs are at least an hour apart.</small></label>
                 <label>Time zone<input required maxLength={100} value={timeZone} onChange={e => setTimeZone(e.target.value)} placeholder="America/New_York"/><small>Use an IANA time zone. Missing daylight-saving times are skipped; repeated hours may run twice.</small></label>
               </>}
+              </fieldset>
             </div>
             <div className="dialog-foot">
               <button
                 className="btn"
                 type="button"
+                disabled={pending}
                 onClick={() => setShow(false)}
               >
                 Cancel
               </button>
-              <button className="btn primary">Create schedule</button>
+              <button type="submit" className="btn primary" disabled={pending}>{pending ? "Creating…" : "Create schedule"}</button>
             </div>
           </form>
         </Dialog>

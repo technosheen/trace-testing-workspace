@@ -39,7 +39,7 @@ test('browser history interaction changes export and trace provenance',async()=>
  const {chromium}=await import('playwright');
  const check={id:'a',name:'Case A',status:'passed',acceptance:'A',evidence:[]};
  const session={id:'session',name:'History',runId:'B',trace:'/B.zip',status:'passed',environmentName:'Demo',environmentId:'demo',url:'/demo',updatedAt:new Date().toISOString(),history:[{runId:'A',at:new Date().toISOString(),status:'passed',cases:[check],findings:[],trace:'/A.zip'}],cases:[{...check,name:'Case B'}],findings:[],activity:[]};
- const vite=await createServer({server:{host:'127.0.0.1',port:0},appType:'custom'});
+ const vite=await createServer({server:{host:'127.0.0.1',port:0,strictPort:false},appType:'custom'});
  vite.middlewares.use('/history-fixture',async(req,res)=>{res.setHeader('Content-Type','text/html');res.end(await vite.transformIndexHtml('/history-fixture',`<div id="root"></div><script type="module">import React from 'react';import {createRoot} from 'react-dom/client';import {SessionDetail} from '/src/components/SessionDetail.tsx';const noop=()=>{};createRoot(document.getElementById('root')).render(React.createElement(SessionDetail,{session:${JSON.stringify(session)},onBack:noop,onRun:noop,onCancel:noop,onCase:noop,onFinding:noop,onAddCase:noop,onRemoveCase:noop,onEdit:noop,onDuplicate:noop}));</script>`));});
  let browser;
  try{

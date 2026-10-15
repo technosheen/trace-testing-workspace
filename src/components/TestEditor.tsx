@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { parse, stringify } from "yaml";
 import { ArrowDown, ArrowUp, Code2, ListChecks, Plus, Trash2 } from "lucide-react";
 import type { Session } from "../types";
-import { Dialog } from "./ui";
+import { Dialog, tabKeyDown } from "./ui";
 import "./TestEditor.css";
 
 type Step = { action: string; url?: string; value?: string; target?: { selector?: string; role?: string; name?: string } };
@@ -54,10 +54,11 @@ export function TestEditor({ session, onClose, onSave, busy }: { session: Sessio
   return <Dialog title="Edit test plan" onClose={busy ? () => {} : onClose} wide>
     <div className="test-editor">
       <div className="te-tabs" role="tablist" aria-label="Editor view">
-        <button type="button" role="tab" aria-selected={tab === "plan"} onClick={() => setTab("plan")}><ListChecks size={16}/>Test plan</button>
-        <button type="button" role="tab" aria-selected={tab === "yaml"} onClick={() => setTab("yaml")}><Code2 size={16}/>YAML</button>
+        <button type="button" role="tab" id="editor-tab-plan" aria-controls="editor-panel-plan" tabIndex={tab === "plan" ? 0 : -1} onKeyDown={tabKeyDown} aria-selected={tab === "plan"} onClick={() => setTab("plan")}><ListChecks size={16}/>Test plan</button>
+        <button type="button" role="tab" id="editor-tab-yaml" aria-controls="editor-panel-yaml" tabIndex={tab === "yaml" ? 0 : -1} onKeyDown={tabKeyDown} aria-selected={tab === "yaml"} onClick={() => setTab("yaml")}><Code2 size={16}/>YAML</button>
         <span>{document?.checks.length || 0} tests · Read-only browser</span>
       </div>
+      <div role="tabpanel" id={`editor-panel-${tab}`} aria-labelledby={`editor-tab-${tab}`} tabIndex={0}>
       {tab === "yaml" ? <label className="te-yaml">Manifest<textarea spellCheck={false} value={source} disabled={busy} onChange={e => setSource(e.target.value)} maxLength={500000} rows={20}/></label> : document ? <>
         <label className="te-suite-name">Plan name<input value={typeof document.name === "string" ? document.name : ""} maxLength={120} disabled={busy} onChange={e => update(p => {p.name = e.target.value;})}/></label>
         <div className="te-layout"><aside className="te-cases" aria-label="Test cases">
@@ -83,6 +84,8 @@ export function TestEditor({ session, onClose, onSave, busy }: { session: Sessio
           </> : <p className="te-note">This standard check is preserved. Edit its configuration in YAML.</p>}
         </>}</section></div>
       </> : <p className="te-note">The manifest cannot be previewed. Open YAML to correct it.</p>}
+      </div>
+      <div role="tabpanel" id={`editor-panel-${tab === "plan" ? "yaml" : "plan"}`} aria-labelledby={`editor-tab-${tab === "plan" ? "yaml" : "plan"}`} hidden/>
       {parsed.error && <p className="inline-error te-error" role="alert">{parsed.error}</p>}
       <p className="te-note">Saving updates the plan. Run it separately to verify the changes. Form submissions and network writes remain blocked.</p>
     </div>

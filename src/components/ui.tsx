@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import {
   Check,
   CheckCircle2,
@@ -126,7 +126,7 @@ export function Dialog({
       if (e.key === "Tab") {
         const elements = Array.from(
           ref.current?.querySelectorAll<HTMLElement>(
-            "button:not([disabled]),input,select,textarea,a[href]",
+            "button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href]",
           ) || [],
         );
         const first = elements[0],
@@ -243,4 +243,13 @@ export function Toast({
       </button>
     </div>
   );
+}
+
+// Automatic activation follows the horizontal WAI-ARIA tabs keyboard pattern.
+export function tabKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
+  const tabs = Array.from(event.currentTarget.closest('[role="tablist"]')?.querySelectorAll<HTMLButtonElement>('[role="tab"]:not([disabled])') || []);
+  const index = tabs.indexOf(event.currentTarget);
+  const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : event.key === "ArrowRight" ? (index + 1) % tabs.length : event.key === "ArrowLeft" ? (index - 1 + tabs.length) % tabs.length : -1;
+  if (next < 0) return;
+  event.preventDefault(); tabs[next]?.focus(); tabs[next]?.click();
 }

@@ -43,7 +43,7 @@ type Modal =
 function readRoute() {
   return location.hash.replace(/^#\/?/, "") || "new";
 }
-function WorkspaceApp({ onSignOut }: { onSignOut?: () => void }) {
+function WorkspaceApp({ onSignOut, authError }: { onSignOut?: () => void; authError?: string }) {
   const { data, error, refresh } = useWorkspace();
   const [route, setRoute] = useState(readRoute);
   const [modal, setModal] = useState<Modal | null>(null);
@@ -98,6 +98,10 @@ function WorkspaceApp({ onSignOut }: { onSignOut?: () => void }) {
   }
   const page = route.split("/")[0];
   const selected = data?.sessions.find((s) => s.id === route.split("/")[1]);
+  const findingRoute = page === "sessions" && route.split("/")[2] === "findings";
+  const findingId = findingRoute ? route.split("/")[3] : undefined;
+  const routeFinding = selected?.findings.find(f => f.id === findingId);
+  const findingModal = modal?.type === "finding-detail" ? modal : routeFinding ? {item:routeFinding,archived:["running","cancelling"].includes(selected!.status)} : null;
   const title = selected
     ? "Sessions"
     : navigation.find((n) => n.id === page)?.name || "Settings";
@@ -120,6 +124,7 @@ function WorkspaceApp({ onSignOut }: { onSignOut?: () => void }) {
       hosted={data?.service.mode === "hosted"}
       onSignOut={onSignOut}
     >
+      {authError && <div className="connection-error" role="alert"><TriangleAlert size={18}/><span>Could not sign out. {authError}</span></div>}
       {error && (
         <div className="connection-error" role="alert">
           <TriangleAlert size={18} />
@@ -138,14 +143,15 @@ function WorkspaceApp({ onSignOut }: { onSignOut?: () => void }) {
           {page === "new" && <SessionComposer environments={data.environments} aiAvailable={Boolean(data.service.ai?.configured)} busy={busy} onSubmit={create} onImport={() => setModal({type:"import"})} onLibrary={() => go("library")} />}
           {["dashboard","runs","findings","library"].includes(page) && <nav className="workspace-tabs" aria-label="Workspace views">{[{id:"dashboard",name:"Overview"},{id:"runs",name:"Runs"},{id:"findings",name:"Findings"},{id:"library",name:"Test library"}].map(t=><button key={t.id} aria-pressed={page===t.id} onClick={()=>go(t.id)}>{t.name}</button>)}</nav>}
           {page === "dashboard" && <Dashboard data={data} go={go} onNew={() => setModal({type:"new"})} onImport={() => setModal({type:"import"})} />}
-          {(page === "runs" || page === "findings") && <WorkspaceReports data={data} kind={page} onOpen={(id, runId) => go(`sessions/${id}${runId ? `/${runId}` : ""}`)} />}
+          {(page === "runs" || page === "findings") && <WorkspaceReports data={data} kind={page} onFinding={(id,findingId)=>go(`sessions/${id}/findings/${findingId}`)} onOpen={(id, runId) => go(`sessions/${id}${runId ? `/${runId}` : ""}`)} />}
           {modal?.type === "editor" && <TestEditor session={modal.session} busy={busy} onClose={() => setModal(null)} onSave={(yaml) => void act(() => request(`/sessions/${modal.session.id}/plan`, "PUT", {yaml}), "Test plan saved.")} />}
           {page === "sessions" &&
             (route.split("/")[1] ? (
               selected ? (
                 <SessionDetail
-                  key={`${selected.id}-${route.split("/")[2] || "latest"}`}
-                  initialRun={route.split("/")[2]}
+                  key={`${selected.id}-${route.split("/").slice(2).join("/") || "latest"}`}
+                  initialRun={findingRoute ? undefined : route.split("/")[2]}
+                  initialFinding={findingRoute ? findingId || "" : undefined}
                   session={selected}
                   onEdit={() => setModal({type:"editor",session:selected})}
                   onDuplicate={() => void (async () => { const result = await act(() => request<Session>(`/sessions/${selected.id}/duplicate`, "POST", {}), "Editable copy created."); if(result) go(`sessions/${(result as Session).id}`); })()}
@@ -250,12 +256,10 @@ function WorkspaceApp({ onSignOut }: { onSignOut?: () => void }) {
               sessions={data.sessions}
               onRun={(s) => void act(() => request(`/schedules/${s.id}/run`, "POST"), "Scheduled suite started.")}
               environments={data.environments}
-              onAdd={(body) =>
-                void act(
-                  () => request("/schedules", "POST", body),
-                  "Schedule created.",
-                )
-              }
+              onAdd={async (body) => Boolean(await act(
+                  async () => { await request("/schedules", "POST", body); return true; },
+                  "Schedule created.", false,
+                ))}
               onToggle={(s) =>
                 void act(
                   () =>
@@ -356,22 +360,23 @@ function WorkspaceApp({ onSignOut }: { onSignOut?: () => void }) {
               onClose={() => setModal(null)}
             />
           )}{" "}
-          {modal?.type === "finding-detail" && selected && (
+          {findingModal && selected && (
             <FindingDetail
+              key={findingModal.item.id}
               item={
-                !modal.archived
-                  ? selected.findings.find((f) => f.id === modal.item.id) ||
-                    modal.item
-                  : modal.item
+                !findingModal.archived
+                  ? selected.findings.find((f) => f.id === findingModal.item.id) ||
+                    findingModal.item
+                  : findingModal.item
               }
-              archived={modal.archived}
+              archived={findingModal.archived}
               busy={busy}
-              onClose={() => setModal(null)}
+              onClose={() => {setModal(null); if (findingRoute) go(`sessions/${selected.id}`);}}
               onTriage={(triage, note) =>
                 void act(
                   () =>
                     request(
-                      `/sessions/${selected.id}/findings/${modal.item.id}`,
+                      `/sessions/${selected.id}/findings/${findingModal.item.id}`,
                       "PATCH",
                       { triage, note },
                     ),
@@ -457,9 +462,11 @@ export default function App() {
     return <SignIn onSignedIn={() => void checkAuth()} />;
   return (
     <WorkspaceApp
+      authError={authError}
       onSignOut={
         auth.hosted
           ? () => {
+              setAuthError("");
               void request("/auth/logout", "POST")
                 .then(() => {
                   if (auth.provider === "entra")
