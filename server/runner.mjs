@@ -22,23 +22,76 @@ export function cancel(session) {
   );
   run.browser?.close().catch(() => {});
 }
-export async function isolatedContext(browser, url) {
+export async function isolatedContext(browser, url, { sameOrigin = false } = {}) {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 960 },
     serviceWorkers: "block",
     acceptDownloads: false,
   });
+  const allowDemo = isDemo(new URL(url));
+  async function permitted(value, navigation, method) {
+    if (!["GET", "HEAD", "OPTIONS"].includes(method)) throw new Error("Write blocked.");
+    const target = await validateTarget(value, allowDemo);
+    if (navigation && (!safeNavigation(target) ||
+        (sameOrigin && target.origin !== new URL(url).origin)))
+      throw new Error("Navigation blocked.");
+  }
+  // Playwright intentionally routes only the first request in a redirect chain.
+  // A separate Chromium CDP session pauses EVERY hop before it reaches the wire.
+  // Keep the route layer too: it holds a new page's first request until CDP is ready.
+  const guards = new WeakMap();
+  context.on("page", page => {
+    const ready = (async () => {
+      const cdp = await context.newCDPSession(page);
+      const redirects = new Map();
+      const completed = ({ requestId }) => redirects.delete(requestId);
+      cdp.on("Network.loadingFinished", completed);
+      cdp.on("Network.loadingFailed", completed);
+      await cdp.send("Network.enable");
+      cdp.on("Fetch.requestPaused", async request => {
+        const { requestId, redirectedRequestId } = request;
+        try {
+          // Network ids persist across redirects and are released on completion.
+          const key = request.networkId || requestId;
+          const hops = redirectedRequestId ? (redirects.get(key) || 0) + 1 : 0;
+          redirects.set(key, hops);
+          if (hops > 20) throw new Error("Too many redirects.");
+          await permitted(request.request.url, request.resourceType === "Document", request.request.method);
+          await cdp.send("Fetch.continueRequest", { requestId });
+        } catch {
+          redirects.delete(request.networkId || requestId);
+          await cdp.send("Fetch.failRequest", { requestId, errorReason: "BlockedByClient" }).catch(() => {});
+        }
+      });
+      await cdp.send("Fetch.enable", { patterns: [{ urlPattern: "*", requestStage: "Request" }] });
+    })();
+    // Retain a rejected setup promise for the route to fail closed, without an
+    // unhandled rejection when the page/browser closes during initialization.
+    ready.catch(() => {});
+    guards.set(page, ready);
+  });
+  const newPage = context.newPage.bind(context);
+  context.newPage = async (...args) => {
+    const page = await newPage(...args);
+    await guards.get(page);
+    return page;
+  };
   await context.routeWebSocket("**/*", (ws) => ws.close());
   await context.route("**/*", async (route) => {
     const request = route.request();
     try {
-      if (!["GET", "HEAD", "OPTIONS"].includes(request.method()))
-        return await route.abort("blockedbyclient");
-      const u = await validateTarget(request.url(), isDemo(new URL(url)));
-      if (request.isNavigationRequest() && !safeNavigation(u))
-        return await route.abort("blockedbyclient");
-      // The guarded proxy validates and pins every outgoing connection,
-      // including redirect hops that do not trigger this route callback.
+      await permitted(request.url(), request.isNavigationRequest(), request.method());
+      // Child frames may move to an out-of-process target outside this page's
+      // CDP session. Embedded document exploration is unsupported; fail closed.
+      if (request.isNavigationRequest() && request.frame().parentFrame())
+        throw new Error("Embedded navigation blocked.");
+      const page = request.frame().page();
+      // Popups can start loading before the page event permits CDP attachment.
+      // Fail closed rather than allow an unguarded first redirect chain.
+      if (await page.opener()) throw new Error("Popup navigation blocked.");
+      const ready = guards.get(page);
+      if (!ready) throw new Error("Page guard unavailable.");
+      await ready;
       await route.continue();
     } catch {
       await route.abort("blockedbyclient").catch(() => {});

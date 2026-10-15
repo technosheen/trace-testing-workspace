@@ -6,7 +6,7 @@ import {verifyDiscoveredCase} from './verifier.mjs';
 import {explore} from './agent.mjs';
 import {active,browserCount,isolatedContext,open,screenshot} from './runner.mjs';
 import {guardedProxy} from './proxy.mjs';
-import {validateTarget,isDemo,safeNavigation} from './policy.mjs';
+import {validateTarget,isDemo} from './policy.mjs';
 import {check} from './checks.mjs';
 import {db,id,now,save,event,dataDir} from './store.mjs';
 
@@ -26,8 +26,7 @@ export function createTeamRuntime(model,{coordinatorOptions={}}={}) {
    browser=await chromium.launch({channel:process.env.TRACE_BROWSER_CHANNEL||'chrome',headless:true,proxy:{server:proxy.url,bypass:'<-loopback>'}});
    const control=active.get(task.id);if(control)control.browser=browser;
    if(signal.aborted)throw Error('Stopped.');
-   context=await isolatedContext(browser,session.url);
-   await context.route('**/*',async route=>{if(route.request().isNavigationRequest()){const url=new URL(route.request().url());if(url.origin!==new URL(session.url).origin||!safeNavigation(url))return route.abort('blockedbyclient');}return route.fallback();});
+   context=await isolatedContext(browser,session.url,{sameOrigin:true});
    await context.tracing.start({screenshots:true,snapshots:true});
    const {page,inputs}=await open(context,session.url);
    const result=await work(page,inputs,evidence);

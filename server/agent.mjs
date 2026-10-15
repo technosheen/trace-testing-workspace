@@ -110,14 +110,7 @@ export async function startAgent(session, model) {
       browser=await chromium.launch({channel:process.env.TRACE_BROWSER_CHANNEL||'chrome',headless:true,proxy:{server:proxy.url,bypass:'<-loopback>'}});
       control.browser=browser;
       if(control.cancelled||controller.signal.aborted)throw Error('Stopped.');
-      context=await isolatedContext(browser,session.url);
-      await context.route('**/*',async(route)=>{
-        if(route.request().isNavigationRequest()) {
-          const url=new URL(route.request().url());
-          if(url.origin!==new URL(session.url).origin||!safeNavigation(url))return route.abort('blockedbyclient');
-        }
-        await route.fallback();
-      });
+      context=await isolatedContext(browser,session.url,{sameOrigin:true});
       await context.tracing.start({screenshots:true,snapshots:true});
       const {page}=await open(context,session.url);
       const knowledge=session.agent.includeKnowledge?db.knowledge.filter(n=>n.enabled!==false&&(!n.environmentId||n.environmentId===session.environmentId)).slice(0,8).map(n=>({title:n.title,content:n.content.slice(0,500)})):[];
