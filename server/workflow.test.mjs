@@ -290,6 +290,9 @@ test(
       await api(`/sessions/${session.id}/run`, "POST");
       const rerun = await finished(session.id);
       assert.equal(rerun.history.length, 1);
+      assert.ok(durable.trace, "the first run captured a browser trace");
+      assert.equal(rerun.history[0].trace, durable.trace);
+      assert.notEqual(rerun.trace, durable.trace);
       assert.equal(rerun.history[0].findings[0].triage, "ACCEPTED");
       t.diagnostic(
         "Verified 10 actual checks, three independent reproductions, screenshots, trace, review persistence, YAML round-trip, invalid inputs, local network guard, cancellation, schedule execution, and run history.",

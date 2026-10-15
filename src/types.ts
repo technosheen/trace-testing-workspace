@@ -54,6 +54,7 @@ export type Activity = {
   findingId?: string;
 };
 export type Run = {
+  trace?: string | null;
   runId: string;
   at: string;
   status: string;

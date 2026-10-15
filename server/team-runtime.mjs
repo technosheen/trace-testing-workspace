@@ -67,7 +67,7 @@ export function createTeamRuntime(model,{coordinatorOptions={}}={}) {
   if(!session.team || (!retry&&session.cases.length))throw Error('Create a fresh agent team session.');
   await validateTarget(session.url);
   if(active.has(session.id))throw Error('This session is already running.');
-  if(retry&&session.runId)session.history.push({runId:session.runId,at:session.finishedAt||session.startedAt,status:session.status,cases:structuredClone(session.cases),findings:structuredClone(session.findings)});
+  if(retry&&session.runId)session.history.push({runId:session.runId,at:session.finishedAt||session.startedAt,status:session.status,cases:structuredClone(session.cases),findings:structuredClone(session.findings),trace:session.trace??null});
   active.set(session.id,{slots:0,cancelled:false,abort:()=>coordinator.cancel(session)});
   try{retry?coordinator.retry(session):coordinator.start(session,session.team.goals||buildExplorationGoals({brief:session.brief}));}
   catch(error){

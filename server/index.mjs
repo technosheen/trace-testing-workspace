@@ -353,15 +353,26 @@ app.patch("/api/sessions/:id/findings/:findingId", (req, res) => {
 });
 app.get("/api/sessions/:id/export", (req, res) => {
   const session = required(db.sessions, req.params.id);
+  const runId = req.query.runId;
+  const archived = runId && runId !== session.runId
+    ? session.history.find(run => run.runId === runId) : null;
+  if (runId && runId !== session.runId && !archived)
+    return res.status(404).json({ error: "Run not found." });
+  // Archived reports contain only identity context and the selected run snapshot.
+  const selected = archived ? {
+    id: session.id, name: session.name, url: session.url,
+    environmentId: session.environmentId, environmentName: session.environmentName,
+    ...archived,
+  } : session;
   const format = req.query.format || "json";
   if (format === "yaml") {
     // Trace's executable manifest, not a claim of Momentic YAML compatibility.
     const manifest = {
-      schema: session.cases.length > 25 || session.cases.some(c => c.kind === "journey") ? "trace/test/v2" : "trace/test/v1",
+      schema: selected.cases.length > 25 || selected.cases.some(c => c.kind === "journey") ? "trace/test/v2" : "trace/test/v1",
       name: session.name,
       url: session.url,
       policy: "read-only",
-      checks: session.cases.map((c) => ({
+      checks: selected.cases.map((c) => ({
         id: c.id,
         kind: c.kind,
         name: c.name,
@@ -376,7 +387,7 @@ app.get("/api/sessions/:id/export", (req, res) => {
         `${session.name.replace(/[^a-z0-9]/gi, "-").toLowerCase()}.trace.yaml`,
       )
       .send(YAML.stringify(manifest));
-  } else res.attachment("trace-report.json").json(session);
+  } else res.attachment("trace-report.json").json(selected);
 });
 app.post("/api/import", async (req, res) => {
   const body = z

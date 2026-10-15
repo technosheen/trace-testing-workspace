@@ -152,6 +152,7 @@ export async function runSession(session) {
       status: session.status,
       cases: structuredClone(session.cases),
       findings: structuredClone(session.findings),
+      trace: session.trace ?? null,
     });
   session.runId = id();
   session.startedAt = now();

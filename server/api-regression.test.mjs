@@ -414,3 +414,19 @@ test('explicit agent restart clears failure and trace metadata from the previous
  assert.equal(started.body.agent.failureKind,undefined);
  assert.equal(started.body.agent.trace,undefined);
 });
+
+test('run-selected exports preserve historical cases and traces without latest evidence',{timeout:20000},async t=>{
+ const {api,request,base}=await service(t,{workspace:port=>{
+  const data=seededWorkspace(port);const session=data.sessions[0];data.sessions=[session];
+  Object.assign(session,{runId:'run-B',trace:'/evidence/B.zip',agent:{trace:'/evidence/latest-agent.zip'},cases:[{...session.cases[0],name:'Case B',value:'B'}],history:[{runId:'run-A',at:'2026-01-01',status:'passed',trace:'/evidence/A.zip',cases:[{...session.cases[0],name:'Case A',value:'A'}],findings:[]}]});return data;
+ }});
+ const selected=await api('/sessions/agent/export?format=json&runId=run-A');
+ assert.equal(selected.runId,'run-A');assert.equal(selected.trace,'/evidence/A.zip');assert.equal(selected.cases[0].name,'Case A');
+ assert.ok(!JSON.stringify(selected).includes('Case B'));assert.ok(!JSON.stringify(selected).includes('latest-agent'));
+ const yaml=await (await fetch(`${base}/api/sessions/agent/export?format=yaml&runId=run-A`)).text();
+ assert.match(yaml,/Case A/);assert.doesNotMatch(yaml,/Case B/);
+ assert.equal((await api('/sessions/agent/export')).trace,'/evidence/B.zip');
+ assert.equal((await api('/sessions/agent/export?runId=run-B')).trace,'/evidence/B.zip');
+ assert.equal((await request('/sessions/agent/export?runId=unknown')).status,404);
+ const imported=await api('/import','POST',{yaml,environmentId:'demo'});assert.equal(imported.cases[0].name,'Case A');
+});

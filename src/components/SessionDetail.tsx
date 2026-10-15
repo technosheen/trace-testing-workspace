@@ -14,6 +14,9 @@ export function SessionDetail({ session, onBack, onRun, onCancel, onCase, onFind
   const [run, setRun] = useState(initialRun || "latest");
   const [menu, setMenu] = useState(false);
   const archived = session.history.find(r => r.runId === run);
+  const selectedRunId = archived?.runId || session.runId;
+  const exportUrl = (format: string) => `/api/sessions/${session.id}/export?format=${format}${selectedRunId ? `&runId=${encodeURIComponent(selectedRunId)}` : ""}`;
+  const trace = archived ? archived.trace : session.trace;
   const cases = archived?.cases || session.cases;
   const findings = archived?.findings || session.findings;
   const n = counts(cases);
@@ -24,6 +27,8 @@ export function SessionDetail({ session, onBack, onRun, onCancel, onCase, onFind
   const visibleFindings = findings.filter(f => (filter === "all" || (filter === "OPEN" && f.triage === "OPEN") || (filter === "ACCEPTED" && f.triage === "ACCEPTED") || (filter === "closed" && !["OPEN", "ACCEPTED"].includes(f.triage))) && f.name.toLowerCase().includes(search.toLowerCase()));
   function changeTab(value: string) { setTab(value); setFilter("all"); setSearch(""); }
   const events = session.activity.slice().reverse();
+  if (run !== "latest" && run !== session.runId && !archived)
+    return <section className="reference-session"><p role="alert">Run not found.</p><button onClick={() => setRun("latest")}>Return to latest</button></section>;
   return <section className="reference-session">
     <header className="reference-session-header">
       <button className="icon-btn reference-back" aria-label="All sessions" onClick={onBack}><ArrowLeft size={16}/></button>
@@ -33,8 +38,8 @@ export function SessionDetail({ session, onBack, onRun, onCancel, onCase, onFind
       <div className="reference-menu-wrap"><button className="icon-btn" aria-label="Session actions" aria-expanded={menu} onClick={() => setMenu(!menu)}>•••</button>{menu && <div className="reference-session-menu">
         {editable && <button onClick={() => { setMenu(false); onEdit(); }}>Edit tests</button>}
         <button disabled={active || !session.cases.length} onClick={() => { setMenu(false); onDuplicate(); }}><Copy size={14}/>Duplicate session</button>
-        {cases.length > 0 && <a href={`/api/sessions/${session.id}/export?format=yaml`}><Download size={14}/>Export tests</a>}
-        <a href={`/api/sessions/${session.id}/export?format=json`}><Download size={14}/>JSON report</a>
+        {cases.length > 0 && <a href={exportUrl("yaml")}><Download size={14}/>Export tests</a>}
+        <a href={exportUrl("json")}><Download size={14}/>JSON report</a>
       </div>}</div>
     </header>
     <div className="reference-session-split">
@@ -49,10 +54,10 @@ export function SessionDetail({ session, onBack, onRun, onCancel, onCase, onFind
           {!session.generation && !session.agent && !session.team && <p className="reference-plan-summary">{cases.length} test cases in this session. {session.runId ? `${n.passed} passed, ${n.issues} issues found, and ${n.blocked} blocked.` : "Review the preconditions, steps, and acceptance criteria before running. No checks have run yet."}</p>}
           <div className="reference-status-card"><header>Session status<button onClick={() => changeTab("cases")}>View test cases <ArrowUpRight size={12}/></button></header><div className="reference-status-grid"><div><span>Passed cases</span><strong>{n.passed}</strong></div><div><span>Issues found</span><strong>{n.issues}</strong></div><div><span>Not run / blocked</span><strong>{notRun + n.blocked}</strong></div></div><button className="reference-bug-total" onClick={() => changeTab("findings")}><span>Bugs <ArrowUpRight size={12}/></span><strong>{findings.length}</strong></button></div>
           <div className="reference-execution-policy"><ShieldCheck size={14}/>Read-only browser checks · No form submissions</div>
-          {session.trace && <a className="reference-trace-link" href={session.trace}><Download size={14}/>Download browser trace</a>}
+          {trace && <a className="reference-trace-link" href={trace}><Download size={14}/>Download browser trace</a>}
           <p className="reference-updated">Updated {date(session.updatedAt)}</p>
         </div>
-        <div className="reference-session-bottom"><span>{session.agent && !cases.length ? (active ? "Agent exploration is running. Recorded steps appear as they complete." : "Start the agent to discover a replayable test from the live page.") : active ? "Browser checks are running. Results appear as each check completes." : session.status === "ready" ? "Your test plan is ready to review and run." : "Review the results or start another run."}</span><div>{editable && <button className="btn compact" onClick={onEdit}>Edit tests</button>}{cases.length > 0 && <a className="btn compact" href={`/api/sessions/${session.id}/export?format=yaml`}><Download size={14}/>Export</a>}</div></div>
+        <div className="reference-session-bottom"><span>{session.agent && !cases.length ? (active ? "Agent exploration is running. Recorded steps appear as they complete." : "Start the agent to discover a replayable test from the live page.") : active ? "Browser checks are running. Results appear as each check completes." : session.status === "ready" ? "Your test plan is ready to review and run." : "Review the results or start another run."}</span><div>{editable && <button className="btn compact" onClick={onEdit}>Edit tests</button>}{cases.length > 0 && <a className="btn compact" href={exportUrl("yaml")}><Download size={14}/>Export</a>}</div></div>
       </div>
       <div className="reference-results">
         <div className="reference-result-tabs" role="tablist" aria-label="Session views">{[["activity","Activity",session.activity.length,Activity],["cases","Test cases",cases.length,SearchCheck],["findings","Bugs",findings.length,Bug],["history","History",session.history.length,History]].map(([id,label,total,Icon]) => { const I = Icon as typeof Activity; return <button key={String(id)} role="tab" aria-selected={tab===id} className={tab===id?"active":""} onClick={() => changeTab(String(id))}><I size={14}/>{String(label)}<span>{String(total)}</span></button>; })}</div>
